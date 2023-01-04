@@ -222,6 +222,7 @@ def extract_receptor_structure(rec, lig, lm_embedding_chains=None):
             valid_coords.append(coords[i])
             valid_c_alpha_coords.append(c_alpha_coords[i])
             if lm_embedding_chains is not None:
+                print('lm_embedding_chains: ', lm_embedding_chains)
                 if i >= len(lm_embedding_chains):
                     raise ValueError('Encountered valid chain id that was not present in the LM embeddings')
                 valid_lm_embeddings.append(lm_embedding_chains[i])

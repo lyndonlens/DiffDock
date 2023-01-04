@@ -72,8 +72,12 @@ class PDBBind(Dataset):
         self.remove_hs = remove_hs
         self.esm_embeddings_path = esm_embeddings_path
         self.require_ligand = require_ligand
+
         self.protein_path_list = protein_path_list
+        print('protein_path_list: ', protein_path_list)
         self.ligand_descriptions = ligand_descriptions
+        print('ligand_descriptions: ', ligand_descriptions)
+
         self.keep_local_structures = keep_local_structures
         if matching or protein_path_list is not None and ligand_descriptions is not None:
             cache_path += '_torsion'
@@ -93,12 +97,15 @@ class PDBBind(Dataset):
         self.num_conformers = num_conformers
         self.all_atoms = all_atoms
         self.atom_radius, self.atom_max_neighbors = atom_radius, atom_max_neighbors
+        print('heterographs.pkl: ', os.path.join(self.full_cache_path, "heterographs.pkl"))
         if not os.path.exists(os.path.join(self.full_cache_path, "heterographs.pkl"))\
                 or (require_ligand and not os.path.exists(os.path.join(self.full_cache_path, "rdkit_ligands.pkl"))):
             os.makedirs(self.full_cache_path, exist_ok=True)
-            if protein_path_list is None or ligand_descriptions is None:
+            if protein_path_list is None or ligand_descriptions is None: #
                 self.preprocessing()
-            else:
+            else: # 指定推断蛋白质和配体
+                # protein_path_list: ['data/dummy_data/1a0q.pdb']
+                # ligand_descriptions: ['COc(cc1)ccc1C#N']
                 self.inference_preprocessing()
 
         print('loading data from memory: ', os.path.join(self.full_cache_path, "heterographs.pkl"))
@@ -155,6 +162,7 @@ class PDBBind(Dataset):
                     p.__enter__()
                 with tqdm(total=len(complex_names), desc=f'loading complexes {i}/{len(complex_names_all)//1000+1}') as pbar:
                     map_fn = p.imap_unordered if self.num_workers > 1 else map
+                    xxxx
                     for t in map_fn(self.get_complex, zip(complex_names, lm_embeddings_chains, [None] * len(complex_names), [None] * len(complex_names))):
                         complex_graphs.extend(t[0])
                         rdkit_ligands.extend(t[1])
@@ -184,6 +192,7 @@ class PDBBind(Dataset):
         else:
             complex_graphs, rdkit_ligands = [], []
             with tqdm(total=len(complex_names_all), desc='loading complexes') as pbar:
+                cxxxx
                 for t in map(self.get_complex, zip(complex_names_all, lm_embeddings_chains_all, [None] * len(complex_names_all), [None] * len(complex_names_all))):
                     complex_graphs.extend(t[0])
                     rdkit_ligands.extend(t[1])
@@ -221,12 +230,22 @@ class PDBBind(Dataset):
             del self.protein_path_list[index]
             del self.ligand_descriptions[index]
 
+        # 加载pdb对应蛋白质的序列特征
+        print('Get esm_embeddings_path: ', self.esm_embeddings_path)
         if self.esm_embeddings_path is not None:
             print('Reading language model embeddings.')
             lm_embeddings_chains_all = []
             if not os.path.exists(self.esm_embeddings_path): raise Exception('ESM embeddings path does not exist: ',self.esm_embeddings_path)
             for protein_path in self.protein_path_list:
-                embeddings_paths = sorted(glob.glob(os.path.join(self.esm_embeddings_path, os.path.basename(protein_path)) + '*'))
+                print()
+                print('self.esm_embeddings_path: ', self.esm_embeddings_path)
+                print('protein_path: ', os.path.basename(protein_path))
+                print('Total: ', os.path.join(self.esm_embeddings_path, os.path.basename(protein_path)[:-4]) + '*')
+                print()
+
+                # embeddings_paths = sorted(glob.glob(os.path.join(self.esm_embeddings_path, os.path.basename(protein_path)) + '*'))
+                embeddings_paths = [os.path.join(self.esm_embeddings_path, os.path.basename(protein_path)[:-4]) + '.pt']
+                print('embeddings_paths:', embeddings_paths)
                 lm_embeddings_chains = []
                 for embeddings_path in embeddings_paths:
                     lm_embeddings_chains.append(torch.load(embeddings_path)['representations'][33])
@@ -250,6 +269,7 @@ class PDBBind(Dataset):
                     p.__enter__()
                 with tqdm(total=len(protein_paths_chunk), desc=f'loading complexes {i}/{len(protein_paths_chunk)//1000+1}') as pbar:
                     map_fn = p.imap_unordered if self.num_workers > 1 else map
+                    xxxx
                     for t in map_fn(self.get_complex, zip(protein_paths_chunk, lm_embeddings_chains, ligands_chunk,ligand_description_chunk)):
                         complex_graphs.extend(t[0])
                         rdkit_ligands.extend(t[1])
@@ -279,6 +299,8 @@ class PDBBind(Dataset):
         else:
             complex_graphs, rdkit_ligands = [], []
             with tqdm(total=len(self.protein_path_list), desc='loading complexes') as pbar:
+                print()
+                print('lm_embeddings_chains_all: ', lm_embeddings_chains_all)
                 for t in map(self.get_complex, zip(self.protein_path_list, lm_embeddings_chains_all, ligands_list, self.ligand_descriptions)):
                     complex_graphs.extend(t[0])
                     rdkit_ligands.extend(t[1])

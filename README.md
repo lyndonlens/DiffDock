@@ -1,3 +1,7 @@
+#Inference 
+1、获取蛋白质pdb文件，记得在pymol中去除水和其他杂质分子、去离子
+
+
 # DiffDock: Diffusion Steps, Twists, and Turns for Molecular Docking
 [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/diffdock-diffusion-steps-twists-and-turns-for/blind-docking-on-pdbbind)](https://paperswithcode.com/sota/blind-docking-on-pdbbind?p=diffdock-diffusion-steps-twists-and-turns-for)
 
