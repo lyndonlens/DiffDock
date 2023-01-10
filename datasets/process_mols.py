@@ -150,8 +150,10 @@ def parse_pdb_from_path(path):
 
 
 def extract_receptor_structure(rec, lig, lm_embedding_chains=None):
-    conf = lig.GetConformer()
-    lig_coords = conf.GetPositions()
+    conf = lig.GetConformer() # 按算法设定，如果输入是smiles，会给ligand预先生成一个构象.
+    # 参考这个脚本里的函数generate_conformer()
+    lig_coords = conf.GetPositions() # 结果是个array，N*3， N为原子数。包含H原子
+
     min_distances = []
     coords = []
     c_alpha_coords = []
@@ -159,43 +161,46 @@ def extract_receptor_structure(rec, lig, lm_embedding_chains=None):
     c_coords = []
     valid_chain_ids = []
     lengths = []
-    for i, chain in enumerate(rec):
+    for i, chain in enumerate(rec): # rec 是Bio.PDB.PDBParser读取的pdb结果取到model级别的类
+        # Biopython的结构采用SMCRA体系架构(Structure/Model/Chain/Residue/Atom,结构/模型/链/残基/原子)
         chain_coords = []  # num_residues, num_atoms, 3
         chain_c_alpha_coords = []
         chain_n_coords = []
         chain_c_coords = []
         count = 0
-        invalid_res_ids = []
+        invalid_res_ids = [] # 忽略非结晶水
         for res_idx, residue in enumerate(chain):
-            if residue.get_resname() == 'HOH':
+            if residue.get_resname() == 'HOH': # ignore H2O
                 invalid_res_ids.append(residue.get_id())
                 continue
             residue_coords = []
             c_alpha, n, c = None, None, None
             for atom in residue:
                 if atom.name == 'CA':
-                    c_alpha = list(atom.get_vector())
+                    c_alpha = list(atom.get_vector()) # get_vector()返回三维坐标, e.g. <Vector -28.63, 64.96, -41.38>. 使用list直接转为一个list
                 if atom.name == 'N':
                     n = list(atom.get_vector())
                 if atom.name == 'C':
                     c = list(atom.get_vector())
-                residue_coords.append(list(atom.get_vector()))
+                residue_coords.append(list(atom.get_vector())) # all atoms in a residue [n_atom_per_residue, 3]
 
-            if c_alpha != None and n != None and c != None:
+            if c_alpha != None and n != None and c != None: # 跳过莫名其妙的分子片段。残基都有CA
                 # only append residue if it is an amino acid and not some weird molecule that is part of the complex
                 chain_c_alpha_coords.append(c_alpha)
                 chain_n_coords.append(n)
                 chain_c_coords.append(c)
-                chain_coords.append(np.array(residue_coords))
+                chain_coords.append(np.array(residue_coords)) # coords for all atoms. [N_AA_per_chain, n_atom_per_residue, 3]
                 count += 1
             else:
                 invalid_res_ids.append(residue.get_id())
         for res_id in invalid_res_ids:
-            chain.detach_child(res_id)
-        if len(chain_coords) > 0:
-            all_chain_coords = np.concatenate(chain_coords, axis=0)
-            distances = spatial.distance.cdist(lig_coords, all_chain_coords)
-            min_distance = distances.min()
+            chain.detach_child(res_id) # 去除杂原子
+
+        if len(chain_coords) > 0: # 残基数量不为0
+            all_chain_coords = np.concatenate(chain_coords, axis=0) # 对每个链的原子坐标展开，[N_aa*N_atom_per_aa, 3]
+
+            distances = spatial.distance.cdist(lig_coords, all_chain_coords) # [M, N], M为lig原子数，N为chain原子数
+            min_distance = distances.min() # scalar， Min distance for a single chain
         else:
             min_distance = np.inf
 
@@ -205,11 +210,12 @@ def extract_receptor_structure(rec, lig, lm_embedding_chains=None):
         c_alpha_coords.append(np.array(chain_c_alpha_coords))
         n_coords.append(np.array(chain_n_coords))
         c_coords.append(np.array(chain_c_coords))
-        if not count == 0: valid_chain_ids.append(chain.get_id())
+        if not count == 0: valid_chain_ids.append(chain.get_id()) # if Len>0, good chain
 
-    min_distances = np.array(min_distances)
+    min_distances = np.array(min_distances) # n_chain
+
     if len(valid_chain_ids) == 0:
-        valid_chain_ids.append(np.argmin(min_distances))
+        valid_chain_ids.append(np.argmin(min_distances)) # if no valid chain, use the closest chain as the receptor
     valid_coords = []
     valid_c_alpha_coords = []
     valid_n_coords = []
@@ -217,9 +223,10 @@ def extract_receptor_structure(rec, lig, lm_embedding_chains=None):
     valid_lengths = []
     invalid_chain_ids = []
     valid_lm_embeddings = []
-    for i, chain in enumerate(rec):
+    for i, chain in enumerate(rec): # rec是SMCRA中的model级别
+        print('chain_id:', i)
         if chain.get_id() in valid_chain_ids:
-            valid_coords.append(coords[i])
+            valid_coords.append(coords[i]) # [n_chain, n_AA, n_atom, 3]
             valid_c_alpha_coords.append(c_alpha_coords[i])
             if lm_embedding_chains is not None:
                 print('lm_embedding_chains: ', lm_embedding_chains)
@@ -231,14 +238,17 @@ def extract_receptor_structure(rec, lig, lm_embedding_chains=None):
             valid_lengths.append(lengths[i])
         else:
             invalid_chain_ids.append(chain.get_id())
-    coords = [item for sublist in valid_coords for item in sublist]  # list with n_residues arrays: [n_atoms, 3]
+
+
+    coords = [item for sublist in valid_coords for item in sublist]
+    # list with n_residues arrays: [n_chain*n_residue, n_atoms_per_residue, 3].
 
     c_alpha_coords = np.concatenate(valid_c_alpha_coords, axis=0)  # [n_residues, 3]
     n_coords = np.concatenate(valid_n_coords, axis=0)  # [n_residues, 3]
     c_coords = np.concatenate(valid_c_coords, axis=0)  # [n_residues, 3]
     lm_embeddings = np.concatenate(valid_lm_embeddings, axis=0) if lm_embedding_chains is not None else None
     for invalid_id in invalid_chain_ids:
-        rec.detach_child(invalid_id)
+        rec.detach_child(invalid_id) # 将不合理的chain去掉
 
     assert len(c_alpha_coords) == len(n_coords)
     assert len(c_alpha_coords) == len(c_coords)
@@ -494,6 +504,11 @@ def read_molecule(molecule_file, sanitize=False, calc_charges=False, remove_hs=F
         supplier = Chem.SDMolSupplier(molecule_file, sanitize=False, removeHs=False)
         mol = supplier[0]
     elif molecule_file.endswith('.pdbqt'):
+        #The pdbqt format is 'pdb' plus 'q' for partial charge and 't' for AD4 atom type. Special AD4 atom types are OA,NA,SA for hbond accepting O,N and S atoms,
+        # HD for hbond donor H atoms,N for non-hydrogen bonding nitrogens and A for carbons in planar cycles.
+        # For any other atom, its AD4 atom type is the same as its element.
+
+
         with open(molecule_file) as file:
             pdbqt_data = file.readlines()
         pdb_block = ''
@@ -546,3 +561,25 @@ def read_sdf_or_mol2(sdf_fileName, mol2_fileName):
             problem = True
 
     return mol, problem
+
+
+if __name__ == '__main__':
+    from rdkit import Chem
+    from rdkit.Chem import AllChem, Draw
+    from Bio.PDB import PDBParser
+
+    smiles = 'CCCCCCCCC1=CC=C(C=C1)CCC(CO)(CO)N'
+    mol = Chem.MolFromSmiles(smiles)
+    AllChem.EmbedMolecule(mol)
+
+    pdb_file = '/home/tianxh/projects/DiffDock/data/dummy_data/taq.pdb'
+    parser = PDBParser(PERMISSIVE=1)
+    rec = parser.get_structure('temp', pdb_file)[0] # model
+
+    rec, coords, c_alpha_coords, n_coords, c_coords, lm_embeddings = extract_receptor_structure(rec, mol, lm_embedding_chains=None)
+    print('example residue coords: ', coords[-1])
+    cnt = 0
+    for c in coords:
+        cnt += len(c)
+    print(cnt)
+

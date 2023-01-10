@@ -1,5 +1,11 @@
-#Inference 
-1、获取蛋白质pdb文件，记得在pymol中去除水和其他杂质分子、去离子
+#Inference  <br>
+1、获取蛋白质pdb文件，记得在pymol中去除水和其他杂质分子、去离子。注意该项目用BioPython读取PDB文件，会自动将pdb中occupancy不确定的原子选取最高的那个进行保存 <br>
+2、为了避免因为PDB网站的pdb文件有各种问题，比如侧链不完整、原子occupancy不高、residue缺失等导致最后的结果有影响，其实不如直接按照UniprotID获取alphafold2的预测结构来用 <br>
+3、分子可以提供smiles字符串、也可以提供sdf文件。注意sdf文件需要提前补H。直接提供smiles字符串是比较方便的 <br>
+4、注意：在对接前需要预计算蛋白质的ESM2特征，注意参数--esm_embeddings_path。每个AA的特征都要保存，结果为N*M，N为AA的数目,M为ESM2特征维度。ESM2的使用参考README。 <br>
+python scripts/extract.py esm2_t33_650M_UR50D pdbbind_sequences.fasta embeddings_output --repr_layers 33 --include per_tok <br>
+5、根据PDB文件可以获取对应的氨基酸序列，可以使用biopython中的PPBuilder来获取。参考get_seq_from_pdb.py文件 <br>
+
 
 
 # DiffDock: Diffusion Steps, Twists, and Turns for Molecular Docking

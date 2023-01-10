@@ -230,7 +230,7 @@ class PDBBind(Dataset):
             del self.protein_path_list[index]
             del self.ligand_descriptions[index]
 
-        # 加载pdb对应蛋白质的序列特征
+        # 加载pdb对应蛋白质的序列esm2特征。shape为N*1280。 N为AA数量
         print('Get esm_embeddings_path: ', self.esm_embeddings_path)
         if self.esm_embeddings_path is not None:
             print('Reading language model embeddings.')
@@ -248,7 +248,7 @@ class PDBBind(Dataset):
                 print('embeddings_paths:', embeddings_paths)
                 lm_embeddings_chains = []
                 for embeddings_path in embeddings_paths:
-                    lm_embeddings_chains.append(torch.load(embeddings_path)['representations'][33])
+                    lm_embeddings_chains.append(torch.load(embeddings_path)['representations'][33]) # dict。 here 33 is repr_layers of esm2 model
                 lm_embeddings_chains_all.append(lm_embeddings_chains)
         else:
             lm_embeddings_chains_all = [None] * len(self.protein_path_list)
