@@ -149,6 +149,7 @@ def parse_pdb_from_path(path):
     return rec
 
 
+# 注意这里注释的很多shape，其实是list的每层的length，而不是真正的tensor shape
 def extract_receptor_structure(rec, lig, lm_embedding_chains=None):
     conf = lig.GetConformer() # 按算法设定，如果输入是smiles，会给ligand预先生成一个构象.
     # 参考这个脚本里的函数generate_conformer()
