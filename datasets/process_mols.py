@@ -257,7 +257,7 @@ def extract_receptor_structure(rec, lig, lm_embedding_chains=None):
     return rec, coords, c_alpha_coords, n_coords, c_coords, lm_embeddings
 
 
-def get_lig_graph(mol, complex_graph):
+def get_lig_graph(mol, complex_graph): # 这是torch_geometric的异质图数据结构
     lig_coords = torch.from_numpy(mol.GetConformer().GetPositions()).float()
     atom_feats = lig_atom_featurizer(mol)
 
@@ -289,43 +289,56 @@ def generate_conformer(mol):
     # else:
     #    AllChem.MMFFOptimizeMolecule(mol_rdkit, confId=0)
 
+
 def get_lig_graph_with_matching(mol_, complex_graph, popsize, maxiter, matching, keep_original, num_conformers, remove_hs):
+    '''
+        Conformer matching, ref to Bowen Jing, Gabriele Corso, Jeffrey Chang, Regina Barzilay, and Tommi Jaakkola. Torsional diffusion for molecular conformer generation
+        阅读Diffdock文献Appendix B前3段，可以理解为什么要用conformer matching。其目的是要让训练数据的local structure分布和推断时保持一致。
+        文献中将整个分子构象划分为两部分：Local structure和rotable bonds，Diffdock只允许rotable bonds改变去寻找构象，Local structure是不允许变动的，包括键长、键角等。
+        推断时，Ligand的结构是未知的（或者是用户提供的？待确认会否直接使用用户提供的结构，按说也不应该直接用），需要用Rdkit的ETKDG方法来预测，这时，local sructure是ETKDG预测的。
+        训练时，ligand结构的ground truth是已知的，也就是说local sructure和rotable bonds都是已知的。这时，ground truth中的local structure并非是预测的，而是实验值。
+        这就导致训练和推断时的local structue分布并不是iid，算法实验发现这对结果的影响还是蛮大的。
+        为了避免上述问题，训练时，虽然已知Ligand构象A，但仍然用ETKDG搜索一个新的预测构象B。然后在锁定B的local structure的前提下，用算法搜索B的rotable bonds，将B朝A尽量对齐，得到C。
+        这样生成的C构象就保留有与推断时相同的local structure分布了，Diffdock就用这个C来做训练。
+    '''
     if matching:
-        mol_maybe_noh = copy.deepcopy(mol_)
+        mol_maybe_noh = copy.deepcopy(mol_) # This is the ground truth. Conformer matching就是要以此为目标，记为构象A
         if remove_hs:
             mol_maybe_noh = RemoveHs(mol_maybe_noh, sanitize=True)
         if keep_original:
-            complex_graph['ligand'].orig_pos = mol_maybe_noh.GetConformer().GetPositions()
+            complex_graph['ligand'].orig_pos = mol_maybe_noh.GetConformer().GetPositions() # coordinates
 
-        rotable_bonds = get_torsion_angles(mol_maybe_noh)
+        rotable_bonds = get_torsion_angles(mol_maybe_noh) # conformer matching过程中，保持B构象的local structure不变，改变rotable键。
         if not rotable_bonds: print("no_rotable_bonds but still using it")
 
         for i in range(num_conformers):
-            mol_rdkit = copy.deepcopy(mol_)
+            mol_rdkit = copy.deepcopy(mol_) # 将此给到rdkit，重新做ETKDG构象预测，记为B。最后要把这个结构朝A对齐
 
             mol_rdkit.RemoveAllConformers()
             mol_rdkit = AllChem.AddHs(mol_rdkit)
-            generate_conformer(mol_rdkit)
+            generate_conformer(mol_rdkit) # 新构象保存在mol_rdkit类中
             if remove_hs:
                 mol_rdkit = RemoveHs(mol_rdkit, sanitize=True)
-            mol = copy.deepcopy(mol_maybe_noh)
+            mol = copy.deepcopy(mol_maybe_noh) # 怎么又copy了一遍？
             if rotable_bonds:
+                # Input：mol, true_mol, rotable_bonds
+                # Output: mol
                 optimize_rotatable_bonds(mol_rdkit, mol, rotable_bonds, popsize=popsize, maxiter=maxiter)
-            mol.AddConformer(mol_rdkit.GetConformer())
-            rms_list = []
-            AllChem.AlignMolConformers(mol, RMSlist=rms_list)
+            mol.AddConformer(mol_rdkit.GetConformer()) # mol中现在包含两个构象，0号是mol，1号是mol_rdkit，也就是matching后的构象
+            rms_list = [] # 用于存储构象rmsd打分
+            AllChem.AlignMolConformers(mol, RMSlist=rms_list) # 计算RMSD值，返回对齐后的构象坐标
             mol_rdkit.RemoveAllConformers()
-            mol_rdkit.AddConformer(mol.GetConformers()[1])
+            mol_rdkit.AddConformer(mol.GetConformers()[1]) # [1]是mol_rdkit跟ground_truth对齐后的构象
 
             if i == 0:
-                complex_graph.rmsd_matching = rms_list[0]
+                complex_graph.rmsd_matching = rms_list[0] # rmsd分值
                 get_lig_graph(mol_rdkit, complex_graph)
             else:
                 if torch.is_tensor(complex_graph['ligand'].pos):
                     complex_graph['ligand'].pos = [complex_graph['ligand'].pos]
                 complex_graph['ligand'].pos.append(torch.from_numpy(mol_rdkit.GetConformer().GetPositions()).float())
 
-    else:  # no matching
+    else:  # no matching，直接用ground truth构象
         complex_graph.rmsd_matching = 0
         if remove_hs: mol_ = RemoveHs(mol_)
         get_lig_graph(mol_, complex_graph)
@@ -401,11 +414,11 @@ def rec_atom_featurizer(rec):
             atomic_num = -1
         atom_feat = [safe_index(allowable_features['possible_amino_acids'], atom.get_parent().get_resname()),
                      safe_index(allowable_features['possible_atomic_num_list'], atomic_num),
-                     safe_index(allowable_features['possible_atom_type_2'], (atom_name + '*')[:2]),
+                     safe_index(allowable_features['possible_atom_type_2'], (atom_name + '*')[:2]), # 不知道为什么会有不同的原子类型？
                      safe_index(allowable_features['possible_atom_type_3'], atom_name)]
         atom_feats.append(atom_feat)
 
-    return atom_feats
+    return atom_feats # 所在residue的name，原子序号，原子类型2， 原子类型3
 
 
 def get_rec_graph(rec, rec_coords, c_alpha_coords, n_coords, c_coords, complex_graph, rec_radius, c_alpha_max_neighbors=None, all_atoms=False,
@@ -490,14 +503,25 @@ def get_fullrec_graph(rec, rec_coords, c_alpha_coords, n_coords, c_coords, compl
     return
 
 def write_mol_with_coords(mol, new_coords, path):
+    '''
+    # 这里的mol实际上是Rdkit Embed或ETKDG方法获得的3D结构（with H），而非Chem.MolFromSmiles()获得的mol对象
+    # 举例获取输入的mol的方法
+    mol = Chem.MolFromSmiles('CCCCCCCCC1=CC=C(C=C1)CCC(CO)(CO)N')
+    ps = AllChem.ETKDGv2()
+    mol = Chem.AddHs(mol)
+    AllChem.EmbedMolecule(mol, ps)
+    Draw.MolToImage(mol)
+    '''
+
     w = Chem.SDWriter(path)
-    conf = mol.GetConformer()
+    conf = mol.GetConformer() # 构象
     for i in range(mol.GetNumAtoms()):
         x,y,z = new_coords.astype(np.double)[i]
-        conf.SetAtomPosition(i,Point3D(x,y,z))
+        conf.SetAtomPosition(i,Point3D(x,y,z)) # Point3D是rdkit的数据结构
     w.write(mol)
     w.close()
 
+# return 3D mol. Why remove Hs ?
 def read_molecule(molecule_file, sanitize=False, calc_charges=False, remove_hs=False):
     if molecule_file.endswith('.mol2'):
         mol = Chem.MolFromMol2File(molecule_file, sanitize=False, removeHs=False)
@@ -508,13 +532,13 @@ def read_molecule(molecule_file, sanitize=False, calc_charges=False, remove_hs=F
         #The pdbqt format is 'pdb' plus 'q' for partial charge and 't' for AD4 atom type. Special AD4 atom types are OA,NA,SA for hbond accepting O,N and S atoms,
         # HD for hbond donor H atoms,N for non-hydrogen bonding nitrogens and A for carbons in planar cycles.
         # For any other atom, its AD4 atom type is the same as its element.
-
-
         with open(molecule_file) as file:
             pdbqt_data = file.readlines()
         pdb_block = ''
         for line in pdbqt_data:
             pdb_block += '{}\n'.format(line[:66])
+            # HETATM    1  C   UNL     1       3.689  26.714   6.935  1.00  0.00     0.032 C
+            # [:66] will omit charge and AD4 atom types
         mol = Chem.MolFromPDBBlock(pdb_block, sanitize=False, removeHs=False)
     elif molecule_file.endswith('.pdb'):
         mol = Chem.MolFromPDBFile(molecule_file, sanitize=False, removeHs=False)
@@ -584,3 +608,6 @@ if __name__ == '__main__':
         cnt += len(c)
     print(cnt)
 
+    feats = rec_atom_featurizer(rec)
+    print(len(feats))
+    print(len(feats[0]))

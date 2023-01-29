@@ -1,6 +1,6 @@
 import copy
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+os.environ['CUDA_VISIBLE_DEVICES'] = '7'
 import torch
 
 import time
@@ -26,12 +26,12 @@ import yaml
 parser = ArgumentParser()
 parser.add_argument('--config', type=FileType(mode='r'), default=None)
 parser.add_argument('--protein_ligand_csv', type=str, default=None, help='Path to a .csv file specifying the input as described in the README. If this is not None, it will be used instead of the --protein_path and --ligand parameters')
-parser.add_argument('--protein_path', type=str, default='data/dummy_data/taq_T.pdb', help='Path to the protein .pdb file')
-# parser.add_argument('--ligand', type=str, default='CC(=O)CCO', help='Either a SMILES string or the path to a molecule file that rdkit can read') # 4-hydroxybutan-2-one
+parser.add_argument('--protein_path', type=str, default='data/dummy_data/amdh1988.pdb', help='Path to the protein .pdb file')
+parser.add_argument('--ligand', type=str, default='CC(=O)CCO', help='Either a SMILES string or the path to a molecule file that rdkit can read') # 4-hydroxybutan-2-one
 # parser.add_argument('--ligand', type=str, default='CC(C)CC(C(=O)O)N', help='Either a SMILES string or the path to a molecule file that rdkit can read') # Leucine
 # parser.add_argument('--ligand', type=str, default='CN1CCN(CC1)CC2=CC=C(C(NC3=CC(NC4=NC=CC(C5=CN=CC=C5)=N4)=C(C=C3)C)=O)C=C2', help='Either a SMILES string or the path to a molecule file that rdkit can read') # Leucine
 # parser.add_argument('--ligand', type=str, default='CCCCCCCCC1=CC=C(C=C1)CCC(CO)(CO)N', help='Either a SMILES string or the path to a molecule file that rdkit can read') # Leucine
-parser.add_argument('--ligand', type=str, default='CCCCCCCCCCCCOS(=O)(=O)[O-]', help='Either a SMILES string or the path to a molecule file that rdkit can read') # Leucine
+# parser.add_argument('--ligand', type=str, default='CCCCCCCCCCCCOS(=O)(=O)[O-]', help='Either a SMILES string or the path to a molecule file that rdkit can read') # Leucine
 
 
 parser.add_argument('--out_dir', type=str, default='results/user_inference', help='Directory where the outputs will be written to')
