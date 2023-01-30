@@ -5,8 +5,8 @@
 4、注意：在对接前需要预计算蛋白质的ESM2特征，注意参数--esm_embeddings_path。每个AA的特征都要保存，结果为N*M，N为AA的数目,M为ESM2特征维度。ESM2的使用参考README。 <br>
 python scripts/extract.py esm2_t33_650M_UR50D pdbbind_sequences.fasta embeddings_output --repr_layers 33 --include per_tok <br>
 5、根据PDB文件可以获取对应的氨基酸序列，可以使用biopython中的PPBuilder来获取。参考get_seq_from_pdb.py文件 <br>
-6、Score_model的model_parameters如果将remove_hs修改为False就导致全部对接失败。暂时不清楚原因。但该参数会影响lig graph的建立。
-
+6、Score_model的model_parameters如果将remove_hs修改为False就导致全部对接失败。暂时不清楚原因。但该参数会影响lig graph的建立 <br>
+7. 对接完成后获得ligand的sdf文件和蛋白质的pdb文件，然后可以使用get_AAs_around_ligand.py来提取ligand周围（radius指定范围）的AAs <br>
 
 # DiffDock: Diffusion Steps, Twists, and Turns for Molecular Docking
 [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/diffdock-diffusion-steps-twists-and-turns-for/blind-docking-on-pdbbind)](https://paperswithcode.com/sota/blind-docking-on-pdbbind?p=diffdock-diffusion-steps-twists-and-turns-for)

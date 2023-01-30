@@ -148,7 +148,8 @@ def parse_pdb_from_path(path):
         rec = structure[0]
     return rec
 
-
+# 对接过程中，lig和receptor的相对位置会持续变化，因此其connected的部分（edges）也会变化。
+# 这个函数是根据lig结构和receptor结构来寻找lig临近的AAs，从而构建edge在动态变化的graph
 # 注意这里注释的很多shape，其实是list的每层的length，而不是真正的tensor shape
 def extract_receptor_structure(rec, lig, lm_embedding_chains=None):
     conf = lig.GetConformer() # 按算法设定，如果输入是smiles，会给ligand预先生成一个构象.
@@ -362,13 +363,13 @@ def get_calpha_graph(rec, c_alpha_coords, n_coords, c_coords, complex_graph, cut
     src_list = []
     dst_list = []
     mean_norm_list = []
-    for i in range(num_residues):
+    for i in range(num_residues): # 遍历所有AA
         dst = list(np.where(distances[i, :] < cutoff)[0])
-        dst.remove(i)
+        dst.remove(i) # 与自身的距离
         if max_neighbor != None and len(dst) > max_neighbor:
             dst = list(np.argsort(distances[i, :]))[1: max_neighbor + 1]
         if len(dst) == 0:
-            dst = list(np.argsort(distances[i, :]))[1:2]  # choose second because first is i itself
+            dst = list(np.argsort(distances[i, :]))[1:2] # choose second because first is i itself
             print(f'The c_alpha_cutoff {cutoff} was too small for one c_alpha such that it had no neighbors. '
                   f'So we connected it to the closest other c_alpha')
         assert i not in dst
@@ -380,7 +381,7 @@ def get_calpha_graph(rec, c_alpha_coords, n_coords, c_coords, complex_graph, cut
         sigma = np.array([1., 2., 5., 10., 30.]).reshape((-1, 1))
         weights = softmax(- valid_dist_np.reshape((1, -1)) ** 2 / sigma, axis=1)  # (sigma_num, neigh_num)
         assert weights[0].sum() > 1 - 1e-2 and weights[0].sum() < 1.01
-        diff_vecs = c_alpha_coords[src, :] - c_alpha_coords[dst, :]  # (neigh_num, 3)
+        diff_vecs = c_alpha_coords[src, :] - c_alpha_coords[dst, :]  # 距离向量，(neigh_num, 3)
         mean_vec = weights.dot(diff_vecs)  # (sigma_num, 3)
         denominator = weights.dot(np.linalg.norm(diff_vecs, axis=1))  # (sigma_num,)
         mean_vec_ratio_norm = np.linalg.norm(mean_vec, axis=1) / denominator  # (sigma_num,)
