@@ -65,7 +65,7 @@ def get_transformation_mask(pyg_data): # pyg_data with H nodes
             mask_rotate[idx][np.asarray(to_rotate[i], dtype=int)] = True
             idx += 1
     print('mask_rotate: ', mask_rotate)
-    ccc
+
     return mask_edges, mask_rotate # mask edges给需要考虑的旋转键置1，且只给不含起始原子的那部分置1. 其长度是len(edges).
 # mask rotate针对每个可旋转键，为该键所允许的可旋转原子们置1. 所以其shape是n_rotable_edges*n_nodes
 # to_rotate:  [[], [], [], [], [], [0, 1, 2], [4, 5], [], [], []]

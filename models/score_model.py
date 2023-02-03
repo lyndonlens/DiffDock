@@ -51,6 +51,10 @@ class AtomEncoder(torch.nn.Module):
         return x_embedding
 
 
+# 张量场网络的搭建参考 https://docs.e3nn.org/en/stable/guide/convolution.html
+# 搞懂了上述案例，这个网络就好懂了.
+# 另一个例子是https://github.com/e3nn/e3nn/blob/main/examples/tetris_polynomial.py
+# 可以帮助初步搞懂输出是怎么定义的
 class TensorProductConvLayer(torch.nn.Module):
     def __init__(self, in_irreps, sh_irreps, out_irreps, n_edge_features, residual=True, batch_norm=True, dropout=0.0,
                  hidden_features=None):
@@ -88,7 +92,7 @@ class TensorProductConvLayer(torch.nn.Module):
             out = self.batch_norm(out)
         return out
 
-
+# ns is number of scalers; nv is number of vectors
 class TensorProductScoreModel(torch.nn.Module):
     def __init__(self, t_to_sigma, device, timestep_emb_func, in_lig_edge_features=4, sigma_embed_dim=32, sh_lmax=2,
                  ns=16, nv=4, num_conv_layers=2, lig_max_radius=5, rec_max_radius=30, cross_max_distance=250,
@@ -107,7 +111,7 @@ class TensorProductScoreModel(torch.nn.Module):
         self.center_max_distance = center_max_distance
         self.distance_embed_dim = distance_embed_dim
         self.cross_distance_embed_dim = cross_distance_embed_dim
-        self.sh_irreps = o3.Irreps.spherical_harmonics(lmax=sh_lmax)
+        self.sh_irreps = o3.Irreps.spherical_harmonics(lmax=sh_lmax) # 生成0到sh_lmax阶的求西恩函数
         self.ns, self.nv = ns, nv
         self.scale_by_sigma = scale_by_sigma
         self.device = device
@@ -128,6 +132,13 @@ class TensorProductScoreModel(torch.nn.Module):
         self.rec_distance_expansion = GaussianSmearing(0.0, rec_max_radius, distance_embed_dim)
         self.cross_distance_expansion = GaussianSmearing(0.0, cross_max_distance, cross_distance_embed_dim)
 
+        # 这是TensorFieldNetwork最不好理解的地方之一。注意ns和nv代表多重度，也就是对某个不可约表示有多少个相同的复制品。
+        # x代表常规的乘号
+        # 数字代表l，即角动量量子数。每个l会产生[-l, l]总共2l+1个分量（m，磁量子数）,意味着存在m个基函数。所以：
+        # l=0, m=0; l=1, m=-1,0,1; l=2, m=-2,-1,0,1,2;
+        # 因此，10x0e对应着10个基函数，10x1e对应着30个基函数，10x2e对应着50个基函数
+        # 尾部的e或o代表parity（宇称，也就是奇偶性）。e为even，o为odd。这个表示的是结果是不是满足反演（镜面）对称。参考TSN文章里tetris例子。
+        # https://docs.e3nn.org/en/stable/api/o3/o3_irreps.html
         if use_second_order_repr:
             irrep_seq = [
                 f'{ns}x0e',
@@ -194,10 +205,14 @@ class TensorProductScoreModel(torch.nn.Module):
                 nn.Linear(ns, ns)
             )
 
+            # self.final_conv最后的结果是配体的平移向量（x,y,z）和旋转向量（Euler vector）都属于R3空间，所以一起输出了。
+            # 输出结果维度为2*3+2*3=12，每3个值代表一个vector，总共4个vector。
+            # 第1和3个vector相加为平移矢量，第2和4个vector相加为旋转矢量
+            # 这里应该是不需要对称性，所以用奇、偶两个向量的组合来代表最终的vector
             self.final_conv = TensorProductConvLayer(
                 in_irreps=self.lig_conv_layers[-1].out_irreps,
                 sh_irreps=self.sh_irreps,
-                out_irreps=f'2x1o + 2x1e',
+                out_irreps=f'2x1o + 2x1e', #
                 n_edge_features=2 * ns,
                 residual=False,
                 dropout=dropout,
@@ -214,11 +229,11 @@ class TensorProductScoreModel(torch.nn.Module):
                     nn.Dropout(dropout),
                     nn.Linear(ns, ns)
                 )
-                self.final_tp_tor = o3.FullTensorProduct(self.sh_irreps, "2e")
+                self.final_tp_tor = o3.FullTensorProduct(self.sh_irreps, "2e") # 产生所有可能的耦合path。用l=2的SH来描述键轴方向
                 self.tor_bond_conv = TensorProductConvLayer(
                     in_irreps=self.lig_conv_layers[-1].out_irreps,
                     sh_irreps=self.final_tp_tor.irreps_out,
-                    out_irreps=f'{ns}x0o + {ns}x0e',
+                    out_irreps=f'{ns}x0o + {ns}x0e', # torsion输出的都是无奇偶性的标量。所以用奇、偶两个结果
                     n_edge_features=3 * ns,
                     residual=False,
                     dropout=dropout,
@@ -303,6 +318,7 @@ class TensorProductScoreModel(torch.nn.Module):
         data.graph_sigma_emb = self.timestep_emb_func(data.complex_t['tr'])
 
         # fix the magnitude of translational and rotational score vectors
+        # 归一化后，根据当前magnitude和时间步数来修正
         tr_norm = torch.linalg.vector_norm(tr_pred, dim=1).unsqueeze(1)
         tr_pred = tr_pred / tr_norm * self.tr_final_layer(torch.cat([tr_norm, data.graph_sigma_emb], dim=1))
         rot_norm = torch.linalg.vector_norm(rot_pred, dim=1).unsqueeze(1)
@@ -311,6 +327,8 @@ class TensorProductScoreModel(torch.nn.Module):
         if self.scale_by_sigma:
             tr_pred = tr_pred / tr_sigma.unsqueeze(1)
             rot_pred = rot_pred * so3.score_norm(rot_sigma.cpu()).unsqueeze(1).to(data['ligand'].x.device)
+            # 暂时没搞懂为什么旋转矢量要用score_norm来缩放
+            # 这里实际上是用score_norm的期望值来缩放
 
         if self.no_torsion or data['ligand'].edge_mask.sum() == 0: return tr_pred, rot_pred, torch.empty(0, device=self.device)
 
@@ -356,7 +374,7 @@ class TensorProductScoreModel(torch.nn.Module):
         edge_length_emb = self.lig_distance_expansion(edge_vec.norm(dim=-1))
 
         edge_attr = torch.cat([edge_attr, edge_length_emb], 1)
-        edge_sh = o3.spherical_harmonics(self.sh_irreps, edge_vec, normalize=True, normalization='component')
+        edge_sh = o3.spherical_harmonics(self.sh_irreps, edge_vec, normalize=True, normalization='component') # 从R3变换到球谐函数上
 
         return node_attr, edge_index, edge_attr, edge_sh
 
@@ -438,5 +456,5 @@ class GaussianSmearing(torch.nn.Module):
         self.register_buffer('offset', offset)
 
     def forward(self, dist):
-        dist = dist.view(-1, 1) - self.offset.view(1, -1)
+        dist = dist.view(-1, 1) - self.offset.view(1, -1) # [points to embed, num_gaussians]
         return torch.exp(self.coeff * torch.pow(dist, 2))
