@@ -113,8 +113,9 @@ def get_AAs_around_ligand(rec, lig, radius=5): # lig是对接后的三维构象�
     residue_ids = [atoms[i].get_parent().get_id()[1] for i in contacts]  # residue id
     chain_ids = [atoms[i].get_parent().parent.get_id() for i in contacts] # residue name
     contact_redidues = {id:(res, chain) for id, res, chain in zip(residue_ids, residue_names, chain_ids)}
+    contact_residues_simple = list(set([str(id)+res for id, res in zip(residue_ids, residue_names)]))
     # print(residue_names, residue_ids, chain_ids)
-    return contact_redidues
+    return contact_redidues, contact_residues_simple
 
 
 # return 3D mol. Why remove Hs ?
@@ -124,6 +125,7 @@ def read_molecule(molecule_file, sanitize=False, calc_charges=False, remove_hs=F
     elif molecule_file.endswith('.sdf'):
         supplier = Chem.SDMolSupplier(molecule_file, sanitize=False, removeHs=False)
         mol = supplier[0]
+
     elif molecule_file.endswith('.pdbqt'):
         #The pdbqt format is 'pdb' plus 'q' for partial charge and 't' for AD4 atom type. Special AD4 atom types are OA,NA,SA for hbond accepting O,N and S atoms,
         # HD for hbond donor H atoms,N for non-hydrogen bonding nitrogens and A for carbons in planar cycles.
@@ -162,10 +164,15 @@ def read_molecule(molecule_file, sanitize=False, calc_charges=False, remove_hs=F
     return mol
 
 if __name__ == '__main__':
-    pdb_file = '/home/tianxh/projects/DiffDock/data/dummy_data/1c1d.pdb'
-    lig_file = '/home/tianxh/projects/DiffDock/data/dummy_data/rank1.sdf'
+    # pdb_file = '/home/tianxh/projects/DiffDock/data/dummy_data/1c1d.pdb'
+    # lig_file = '/home/tianxh/projects/DiffDock/data/dummy_data/rank1.sdf'
+    pdb_file = '/home/tianxh/projects/DiffDock/data/dummy_data/taq_T.pdb'
+    lig_file = '/home/tianxh/projects/DiffDock/data/dummy_data/sds.sdf'
+
     parser = PDBParser(PERMISSIVE=1)
     rec = parser.get_structure('temp', pdb_file)[0] # model level
     mol = read_molecule(lig_file)
-    residues = get_AAs_around_ligand(rec, mol, radius=3.5)
-    print(residues)
+    mol = Chem.AddHs(mol) # 给读取的sdf 构象加氢
+
+    residues, residues_simple = get_AAs_around_ligand(rec, mol, radius=3.5)
+    print(residues_simple) # 忽略了chain的信息

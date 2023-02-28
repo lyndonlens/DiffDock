@@ -9,7 +9,8 @@ from torch_geometric.data import Data
     Preprocessing and computation for torsional updates to conformers
 """
 
-
+# 一个键首要定义其方向，然后才能定义旋转的正方向和逆方向。
+# 施加torsion时，起始原子（及这一端的那堆原子）不允许旋转，键的另外一端的那些原子可以旋转。注意，键两头的两个原子是不动的
 def get_transformation_mask(pyg_data): # pyg_data with H nodes
     G = to_networkx(pyg_data.to_homogeneous(), to_undirected=False) #
     to_rotate = []
@@ -76,21 +77,24 @@ def get_transformation_mask(pyg_data): # pyg_data with H nodes
 def modify_conformer_torsion_angles(pos, edge_index, mask_rotate, torsion_updates, as_numpy=False):
     pos = copy.deepcopy(pos)
     if type(pos) != np.ndarray: pos = pos.cpu().numpy()
-
     for idx_edge, e in enumerate(edge_index.cpu().numpy()):
         if torsion_updates[idx_edge] == 0:
             continue
         u, v = e[0], e[1]
 
         # check if need to reverse the edge, v should be connected to the part that gets rotated
-        assert not mask_rotate[idx_edge, u]
+        assert not mask_rotate[idx_edge, u] # 键的起始原子mask为False
         assert mask_rotate[idx_edge, v]
 
+        # 根据旋转向量的定义，旋转向量的矢量方向，定义了转轴；旋转向量的模则定义了转角theta。这里是在保持转轴方向的前提下， 更新theta
+        # 其实感觉改成下面这样更直观。原来的旋转向量是单位向量。然后在此单位向量上乘以一个更新的theta。新的旋转向量的模就是torsion_updates[idx_edge]
         rot_vec = pos[u] - pos[v]  # convention: positive rotation if pointing inwards
-        rot_vec = rot_vec * torsion_updates[idx_edge] / np.linalg.norm(rot_vec) # idx_edge!
+        rot_vec /= np.linalg.norm(rot_vec) # 归一化为单位矢量
+        rot_vec *= torsion_updates[idx_edge]   # 新的模即为theta
+        # rot_vec = rot_vec * torsion_updates[idx_edge] / np.linalg.norm(rot_vec) # idx_edge! # 这是原代码的写法
         rot_mat = R.from_rotvec(rot_vec).as_matrix()
 
-        pos[mask_rotate[idx_edge]] = (pos[mask_rotate[idx_edge]] - pos[v]) @ rot_mat.T + pos[v]
+        pos[mask_rotate[idx_edge]] = (pos[mask_rotate[idx_edge]] - pos[v]) @ rot_mat.T + pos[v] # v端的原子是允许旋转的。画个示意图会更好理解
 
     if not as_numpy: pos = torch.from_numpy(pos.astype(np.float32))
     return pos

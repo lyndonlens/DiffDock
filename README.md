@@ -1,4 +1,4 @@
-#Inference  <br>
+# Notations  <br>
 1、获取蛋白质pdb文件，记得在pymol中去除水和其他杂质分子、去离子。注意该项目用BioPython读取PDB文件，会自动将pdb中occupancy不确定的原子选取最高的那个进行保存 <br>
 2、为了避免因为PDB网站的pdb文件有各种问题，比如侧链不完整、原子occupancy不高、residue缺失等导致最后的结果有影响，其实不如直接按照UniprotID获取alphafold2的预测结构来用 <br>
 3、分子可以提供smiles字符串、也可以提供sdf文件。注意sdf文件需要提前补H。直接提供smiles字符串是比较方便的 <br>
@@ -7,6 +7,9 @@ python scripts/extract.py esm2_t33_650M_UR50D pdbbind_sequences.fasta embeddings
 5、根据PDB文件可以获取对应的氨基酸序列，可以使用biopython中的PPBuilder来获取。参考get_seq_from_pdb.py文件 <br>
 6、Score_model的model_parameters如果将remove_hs修改为False就导致全部对接失败。暂时不清楚原因。但该参数会影响lig graph的建立 <br>
 7. 对接完成后获得ligand的sdf文件和蛋白质的pdb文件，然后可以使用get_AAs_around_ligand.py来提取ligand周围（radius指定范围）的AAs <br>
+8. score_model.py是score模型的主函数，其关键在于GFN网络的应用。注释里给出了两个GFN网络的小例子，要跑一下了解了GFN再看其他的 <br>
+9. sampling.py是逆向SDE或ODE的代码，照着文献看，还是蛮容易理解的
+10. 
 
 # DiffDock: Diffusion Steps, Twists, and Turns for Molecular Docking
 [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/diffdock-diffusion-steps-twists-and-turns-for/blind-docking-on-pdbbind)](https://paperswithcode.com/sota/blind-docking-on-pdbbind?p=diffdock-diffusion-steps-twists-and-turns-for)

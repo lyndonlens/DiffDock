@@ -10,9 +10,13 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+esm_fold.py
+
 # C extensions
 *.so
 .so3_*
+
+*.ipynb
 
 # Distribution / packaging
 .Python

@@ -10,7 +10,7 @@ from utils.sampling import randomize_position, sampling
 import torch
 from utils.diffusion_utils import get_t_schedule
 
-
+# 这里有三个score models，分别对应了平移R3，旋转O3，还有扭转SO2 m个
 def loss_function(tr_pred, rot_pred, tor_pred, data, t_to_sigma, device, tr_weight=1, rot_weight=1,
                   tor_weight=1, apply_mean=True, no_torsion=False):
     tr_sigma, rot_sigma, tor_sigma = t_to_sigma(

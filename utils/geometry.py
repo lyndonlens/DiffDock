@@ -2,7 +2,9 @@ import math
 
 import torch
 
-
+# 这个文件主要是一些旋转操作表示方法的互相转换。需要了解一下什么叫旋转矩阵，什么是四元数、什么是axis-angle表示。
+# 本质上来讲就是我们用的时候要用一些更为紧凑的、不冗余的方式来表示旋转。一个旋转动作可以直接用一个3x3旋转矩阵来描述，有9个元素。为了简化，可以用四元数来描述；
+# 更简单的是用axis-angle方式，此时只需3个数字，表示一个向量。该向量的方向代表axis方向，该向量的模则代表围绕该轴的旋转角度（弧度）。
 def quaternion_to_matrix(quaternions):
     """
     From https://pytorch3d.readthedocs.io/en/latest/_modules/pytorch3d/transforms/rotation_conversions.html
@@ -98,7 +100,7 @@ def rigid_transform_Kabsch_3D_torch(A, B):
         raise Exception(f"matrix B is not 3xN, it is {num_rows}x{num_cols}")
 
 
-    # find mean column wise: 3 x 1
+    # find mean column wise: 3 x 1, centroids, this is unweighted
     centroid_A = torch.mean(A, axis=1, keepdims=True)
     centroid_B = torch.mean(B, axis=1, keepdims=True)
 
@@ -106,14 +108,14 @@ def rigid_transform_Kabsch_3D_torch(A, B):
     Am = A - centroid_A
     Bm = B - centroid_B
 
-    H = Am @ Bm.T
+    H = Am @ Bm.T #
 
     # find rotation
     U, S, Vt = torch.linalg.svd(H)
 
     R = Vt.T @ U.T
     # special reflection case
-    if torch.linalg.det(R) < 0:
+    if torch.linalg.det(R) < 0: # R
         # print("det(R) < R, reflection detected!, correcting for it ...")
         SS = torch.diag(torch.tensor([1.,1.,-1.], device=A.device))
         R = (Vt.T @ SS) @ U.T
