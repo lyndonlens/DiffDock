@@ -1,0 +1,2 @@
+ESM2_WEIGHTS_PATH: '/home/tianxh/projects/DiffDock/esm/model_weights/.cache/torch/'
+ESM2_FEATS_PATH: '/home/tianxh/projects/DiffDock/data/esm2_output/'
