@@ -505,7 +505,7 @@ def get_fullrec_graph(rec, rec_coords, c_alpha_coords, n_coords, c_coords, compl
 
 def write_mol_with_coords(mol, new_coords, path):
     '''
-    # 这里的mol实际上是Rdkit Embed或ETKDG方法获得的3D结构（with H），而非Chem.MolFromSmiles()获得的mol对象
+    # 这里的mol实际上是Rdkit Embed或ETKDG方法获得的3D结构（代码默认除去了H），而非Chem.MolFromSmiles()获得的mol对象
     # 举例获取输入的mol的方法
     mol = Chem.MolFromSmiles('CCCCCCCCC1=CC=C(C=C1)CCC(CO)(CO)N')
     ps = AllChem.ETKDGv2()
@@ -587,6 +587,7 @@ def read_sdf_or_mol2(sdf_fileName, mol2_fileName):
             problem = True
 
     return mol, problem
+
 
 
 if __name__ == '__main__':

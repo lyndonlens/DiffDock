@@ -1,0 +1,31 @@
+# 参考data/protein_ligand_example_csv.csv
+# if specified, protein_path and ligand will be omittd
+#protein_ligand_csv: /home/tianxh/projects/DiffDock/data/dummy_data/test_docking.csv
+protein_ligand_csv: null
+
+# 给定的都是绝对路径
+protein_path: 'data/dummy_data/10_mt_K68S_D261L_V294C_72.5.pdb'
+# ligand可以给smiles字符串，也可以给sdf文件或mo2文件的绝对路径
+ligand: '/home/tianxh/projects/DiffDock/data/dummy_data/test.sdf'
+# 最后输出的构象数量
+samples_per_complex: 10
+out_dir: 'results/user_inference'
+
+# 下面的参数就不要改了
+config: null
+ignore_existed_esm_embeddings: false
+save_visualisation: true
+model_dir: 'workdir/paper_score_model'
+ckpt: 'best_ema_inference_epoch_model.pt'
+confidence_model_dir: 'workdir/paper_confidence_model'
+confidence_ckpt: 'best_model_epoch75.pt'
+batch_size: 1
+cache_path: 'data/cache'
+no_random: false
+no_final_step_noise: false
+ode: false
+inference_steps: 20
+num_workers: 1
+sigma_schedule: 'expbeta'
+actual_steps: null
+keep_local_structures: false

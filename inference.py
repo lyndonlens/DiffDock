@@ -9,6 +9,7 @@ from rdkit.Chem import RemoveHs
 from functools import partial
 import numpy as np
 import pandas as pd
+import shutil
 from rdkit import RDLogger
 from rdkit.Chem import MolFromSmiles, AddHs
 from torch_geometric.loader import DataLoader
@@ -20,41 +21,22 @@ from utils.sampling import randomize_position, sampling
 from utils.utils import get_model
 from utils.visualise import PDBFile
 from tqdm import tqdm
+from datasets.get_seq_from_pdb import get_seq_from_pdb, get_seqs_from_pdbs
+from esm.extract_esm_feat import ESM_pretrained, parse_fasta
+import sys
+# sys.append('./esm/esm/model')
 
 RDLogger.DisableLog('rdApp.*')
 import yaml
-parser = ArgumentParser()
-parser.add_argument('--config', type=FileType(mode='r'), default=None)
-parser.add_argument('--protein_ligand_csv', type=str, default=None, help='Path to a .csv file specifying the input as described in the README. If this is not None, it will be used instead of the --protein_path and --ligand parameters')
-parser.add_argument('--protein_path', type=str, default='data/dummy_data/amdh1988.pdb', help='Path to the protein .pdb file')
-parser.add_argument('--ligand', type=str, default='CC(=O)CCO', help='Either a SMILES string or the path to a molecule file that rdkit can read') # 4-hydroxybutan-2-one
-# parser.add_argument('--ligand', type=str, default='CC(C)CC(C(=O)O)N', help='Either a SMILES string or the path to a molecule file that rdkit can read') # Leucine
-# parser.add_argument('--ligand', type=str, default='CN1CCN(CC1)CC2=CC=C(C(NC3=CC(NC4=NC=CC(C5=CN=CC=C5)=N4)=C(C=C3)C)=O)C=C2', help='Either a SMILES string or the path to a molecule file that rdkit can read') # Leucine
-# parser.add_argument('--ligand', type=str, default='CCCCCCCCC1=CC=C(C=C1)CCC(CO)(CO)N', help='Either a SMILES string or the path to a molecule file that rdkit can read') # Leucine
-# parser.add_argument('--ligand', type=str, default='CCCCCCCCCCCCOS(=O)(=O)[O-]', help='Either a SMILES string or the path to a molecule file that rdkit can read') # Leucine
 
+class Struct:
+    def __init__(self, **entries):
+        self.__dict__.update(entries)
 
-parser.add_argument('--out_dir', type=str, default='results/user_inference', help='Directory where the outputs will be written to')
-parser.add_argument('--esm_embeddings_path', type=str, default='/home/tianxh/projects/DiffDock/data/esm2_output', help='LM embeddings at that path will be used for the receptor features')
-parser.add_argument('--save_visualisation', action='store_true', default=False, help='Save a pdb file with all of the steps of the reverse diffusion')
-parser.add_argument('--samples_per_complex', type=int, default=10, help='Number of samples to generate')
+file = open('diffdock_config.yaml', 'r', encoding='utf-8')
+args = yaml.load(file, Loader=yaml.FullLoader)
+args = Struct(**args)
 
-parser.add_argument('--model_dir', type=str, default='workdir/paper_score_model', help='Path to folder with trained score model and hyperparameters')
-parser.add_argument('--ckpt', type=str, default='best_ema_inference_epoch_model.pt', help='Checkpoint to use for the score model')
-parser.add_argument('--confidence_model_dir', type=str, default='workdir/paper_confidence_model', help='Path to folder with trained confidence model and hyperparameters')
-parser.add_argument('--confidence_ckpt', type=str, default='best_model_epoch75.pt', help='Checkpoint to use for the confidence model')
-
-parser.add_argument('--batch_size', type=int, default=32, help='')
-parser.add_argument('--cache_path', type=str, default='data/cache', help='Folder from where to load/restore cached dataset')
-parser.add_argument('--no_random', action='store_true', default=False, help='Use no randomness in reverse diffusion')
-parser.add_argument('--no_final_step_noise', action='store_true', default=False, help='Use no noise in the final step of the reverse diffusion')
-parser.add_argument('--ode', action='store_true', default=False, help='Use ODE formulation for inference')
-parser.add_argument('--inference_steps', type=int, default=20, help='Number of denoising steps')
-parser.add_argument('--num_workers', type=int, default=1, help='Number of workers for creating the dataset')
-parser.add_argument('--sigma_schedule', type=str, default='expbeta', help='')
-parser.add_argument('--actual_steps', type=int, default=None, help='Number of denoising steps that are actually performed')
-parser.add_argument('--keep_local_structures', action='store_true', default=False, help='Keeps the local structure when specifying an input with 3D coordinates instead of generating them with RDKit')
-args = parser.parse_args()
 if args.config:
     config_dict = yaml.load(args.config, Loader=yaml.FullLoader)
     arg_dict = args.__dict__
@@ -78,16 +60,34 @@ if args.confidence_model_dir is not None:
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+# gather information of paired PDBs and mols
 if args.protein_ligand_csv is not None:
     df = pd.read_csv(args.protein_ligand_csv)
     protein_path_list = df['protein_path'].tolist()
     ligand_descriptions = df['ligand'].tolist()
+    fasta_file = args.protein_ligand_csv[:-4] + '.fasta' # 写在data/dummy_data目录下
+    fasta_file = get_seqs_from_pdbs(protein_path_list, out_file=fasta_file) #
 else:
     protein_path_list = [args.protein_path]
     ligand_descriptions = [args.ligand]
+    fasta_file = args.protein_path[:-4] + '.fasta'  # 写在data/dummy_data目录下
+    fasta_file = get_seq_from_pdb(args.protein_path, out_file=fasta_file)  #
 
+# extract esm2 feats in the fasta file
+seq_data_for_esm = parse_fasta(fasta_file)
+# 固定参数文件
+file = open('./esm/esm2_config.yaml', 'r', encoding='utf-8')
+esm2_params = yaml.load(file, Loader=yaml.FullLoader)
+esm2_params = Struct(**esm2_params)
+esm_model = ESM_pretrained(model_id='2', weights_path=esm2_params.ESM2_WEIGHTS_PATH)
+esm2_feats_file_list = esm_model.get_esm_feats(seq_data_for_esm,
+                                               out_path=esm2_params.ESM2_FEATS_PATH,
+                                               ignore_exists=args.ignore_existed_esm_embeddings) # 获取的特征直接写入硬盘。文件名称是fasta文件每个序列注释用’_‘拼接到一起，如 2_wt_K68S_D261L_T43M_52.5.pt
+    # 注意这里的文件名必须和diffdock对接时提供的pdb文件名一致
+args.esm_embeddings_path = os.path.dirname(esm2_feats_file_list[0])
+print('ESM2_embeddings_path: ', args.esm_embeddings_path)
 
-print('esm_embeddings_path: ', args.esm_embeddings_path)
+# parse data, get complex_graph
 test_dataset = PDBBind(transform=None, root='', protein_path_list=protein_path_list, ligand_descriptions=ligand_descriptions,
                        receptor_radius=score_model_args.receptor_radius, cache_path=args.cache_path,
                        remove_hs=score_model_args.remove_hs, max_lig_size=None,
@@ -145,18 +145,19 @@ print('common t schedule', tr_schedule)
 
 failures, skipped, confidences_list, names_list, run_times, min_self_distances_list = 0, 0, [], [], [], []
 N = args.samples_per_complex
-print('Size of test dataset: ', len(test_dataset))
+print('Number of tests: ', len(test_dataset))
+out_dir_list = []
 for idx, orig_complex_graph in tqdm(enumerate(test_loader)):
     if confidence_model is not None and not (confidence_args.use_original_model_cache or confidence_args.transfer_weights) and orig_complex_graph.name[0] not in confidence_complex_dict.keys():
         skipped += 1
         print(f"HAPPENING | The confidence dataset did not contain {orig_complex_graph.name[0]}. We are skipping this complex.")
         continue
     try:
-        data_list = [copy.deepcopy(orig_complex_graph) for _ in range(N)]
+        data_list = [copy.deepcopy(orig_complex_graph) for _ in range(N)] # 重复N次
         # 这里是随机初始化分子构象
         randomize_position(data_list, score_model_args.no_torsion, args.no_random,score_model_args.tr_sigma_max)
         pdb = None
-        lig = orig_complex_graph.mol[0]
+        lig = orig_complex_graph.mol[0] # 如果输入为smiles，会自动先生成一个conformer
         if args.save_visualisation:
             visualization_list = []
             for graph in data_list:
@@ -182,6 +183,8 @@ for idx, orig_complex_graph in tqdm(enumerate(test_loader)):
                                          confidence_data_list=confidence_data_list, confidence_model_args=confidence_model_args,
                                          batch_size=args.batch_size, no_final_step_noise=args.no_final_step_noise)
         ligand_pos = np.asarray([complex_graph['ligand'].pos.cpu().numpy() + orig_complex_graph.original_center.cpu().numpy() for complex_graph in data_list])
+        # [N_samples, N_atoms, 3]
+
         run_times.append(time.time() - start_time)
 
         if confidence is not None and isinstance(confidence_args.rmsd_classification_cutoff, list):
@@ -192,14 +195,20 @@ for idx, orig_complex_graph in tqdm(enumerate(test_loader)):
             confidence = confidence[re_order]
             confidences_list.append(confidence)
             ligand_pos = ligand_pos[re_order]
+
         write_dir = f'{args.out_dir}/index{idx}_{data_list[0]["name"][0].replace("/","-")}'
+        if os.path.exists(write_dir):
+            shutil.rmtree(write_dir, ignore_errors=False)
+        out_dir_list.append(write_dir)
         os.makedirs(write_dir, exist_ok=True)
-        for rank, pos in enumerate(ligand_pos):
-            mol_pred = copy.deepcopy(lig)
+
+        for rank, pos in enumerate(ligand_pos): # rank 是1~N，N为采样个数；pos为分子重原子的三维坐标，[N_atoms, 3]
+            mol_pred = copy.deepcopy(lig) # 这是送给模型的分子rdkit mol数据结构
             if score_model_args.remove_hs: mol_pred = RemoveHs(mol_pred)
+            # 因为预测的分子结构都是不带H的，所以按照write_mol_with_coords这个函数的逻辑，必须把mol_pred里的H给去掉
             if rank == 0: write_mol_with_coords(mol_pred, pos, os.path.join(write_dir, f'rank{rank+1}.sdf'))
             write_mol_with_coords(mol_pred, pos, os.path.join(write_dir, f'rank{rank+1}_confidence{confidence[rank]:.2f}.sdf'))
-        self_distances = np.linalg.norm(ligand_pos[:, :, None, :] - ligand_pos[:, None, :, :], axis=-1)
+        self_distances = np.linalg.norm(ligand_pos[:, :, None, :] - ligand_pos[:, None, :, :], axis=-1) # 每个分子自己的原子之间的距离
         self_distances = np.where(np.eye(self_distances.shape[2]), np.inf, self_distances)
         min_self_distances_list.append(np.min(self_distances, axis=(1, 2)))
 
@@ -218,15 +227,31 @@ for idx, orig_complex_graph in tqdm(enumerate(test_loader)):
 print(f'Failed for {failures} complexes')
 print(f'Skipped {skipped} complexes')
 
-min_self_distances = np.array(min_self_distances_list)
-confidences = np.array(confidences_list)
-names = np.array(names_list)
-run_times = np.array(run_times)
-np.save(f'{args.out_dir}/min_self_distances.npy', min_self_distances)
-np.save(f'{args.out_dir}/confidences.npy', confidences)
-np.save(f'{args.out_dir}/run_times.npy', run_times)
-np.save(f'{args.out_dir}/complex_names.npy', np.array(names))
+# min_self_distances = np.array(min_self_distances_list)
+# confidences = np.array(confidences_list)
+# names = np.array(names_list)
+# run_times = np.array(run_times)
+# np.save(f'{args.out_dir}/min_self_distances.npy', min_self_distances)
+# np.save(f'{args.out_dir}/confidences.npy', confidences)
+# np.save(f'{args.out_dir}/run_times.npy', run_times)
+# np.save(f'{args.out_dir}/complex_names.npy', np.array(names))
 
-print(f'Results are in {args.out_dir}')
+# Here to get all information
+print()
+print('-'*100)
+print('Summary: ')
+print(f'All sequences in: {fasta_file}')
+print(f'Docking results in: {args.out_dir}')
+print('-'*100)
+print('PDB files, Ligands and Docking poses:：')
+
+for i, (p, l, o) in enumerate(zip(protein_path_list, ligand_descriptions, out_dir_list)):
+    print(f'--Job{i}')
+    print(f'PDB path: {p}')
+    print(f'In mol: {l}')
+    print(f'Out mol: {o}')
+
+
+
 
 
