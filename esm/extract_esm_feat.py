@@ -18,7 +18,7 @@ class ESM_pretrained():
         self.model, self.alphabet = esm2_t33_650M_UR50D()
         self.model.eval()  # disables dropout for deterministic results
 
-    def get_esm_feats(self, data, out_path, ignore_exists=False):
+    def get_esm_feats(self, data, out_path, ignore_exists=True):
         # 注意序列长度不应该长于1021
         esm2_feats_file_list = []
         print(f"2. Calculating ESM-{self.model_id} feats...")
@@ -26,8 +26,11 @@ class ESM_pretrained():
         with torch.no_grad():
             for d in tqdm(data):  # 一个个输入，否则容易内存不足。主要时间都在前面的模型加载，这里不batch计算也影响不大
                 out = {}
-                pt_file = os.path.join(out_path, d[0] + '.pt')
+                pt_file = os.path.join(out_path, d[0] + '.pt') # d[0]是pdb名称
+                print(pt_file)
                 if os.path.exists(pt_file) and ignore_exists:
+                        print('\nAlready exists ', d[0] + '.pt', ', skipping...')
+                if not os.path.exists(pt_file) or not ignore_exists:
                     batch_labels, batch_strs, batch_tokens = batch_converter([d])
                     batch_lens = (batch_tokens != self.alphabet.padding_idx).sum(1)
                     results = self.model(batch_tokens, repr_layers=[33], return_contacts=False)
@@ -35,8 +38,7 @@ class ESM_pretrained():
                     out['label'] = d[0]
                     out["representations"] = {33: results["representations"][33][0, 1:-1, :]}  # 记得去掉第一个维度，同时去掉开头和结尾
                     torch.save(out, pt_file)  # 可以直接给diffdock使用的
-                else:
-                    print('\nAlready exists ', d[0] + '.pt', ', skipping...')
+
                 esm2_feats_file_list.append(pt_file)
             print(f"3. ESM{self.model_id} feats all saved.")
         return esm2_feats_file_list
@@ -60,7 +62,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="ESM2-feats")
     parser.add_argument('--fasta_file',
                         type=str,
-                        default='/home/tianxh/projects/DiffDock/data/test.fasta',
+                        default='/home/tianxh/projects/DiffDock/data/dummy_data/wanghui_8DHH.fasta',
                         help='Fasta file contains sequences')
     args = parser.parse_args()
     data = parse_fasta(args.fasta_file) # data的形式如下
@@ -80,5 +82,5 @@ if __name__ == '__main__':
 
     model_name = '2' # model_name:['1b', '1v', '2']
     esm_model = ESM_pretrained(model_name, weights_path=params['ESM2_WEIGHTS_PATH'])
-    esm_model.get_esm_feats(data, out_path=params['ESM2_FEATS_PATH']) # 获取的特征直接写入硬盘。文件名称是fasta文件每个序列注释用’_‘拼接到一起，如 2_wt_K68S_D261L_T43M_52.5.pt
+    esm_model.get_esm_feats(data, out_path=params['ESM2_FEATS_PATH'], ignore_exists=True) # 获取的特征直接写入硬盘。文件名称是fasta文件每个序列注释用’_‘拼接到一起，如 2_wt_K68S_D261L_T43M_52.5.pt
     # 注意这里的文件名必须和diffdock对接时提供的pdb文件名一致

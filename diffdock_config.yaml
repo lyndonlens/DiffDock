@@ -1,7 +1,7 @@
 # 参考data/protein_ligand_example_csv.csv
 # if specified, protein_path and ligand will be omittd
-#protein_ligand_csv: /home/tianxh/projects/DiffDock/data/dummy_data/test_docking.csv
-protein_ligand_csv: null
+protein_ligand_csv: /home/tianxh/projects/DiffDock/data/dummy_data/wanghui_8DHH.csv
+#protein_ligand_csv: null
 
 # 给定的都是绝对路径
 protein_path: 'data/dummy_data/10_mt_K68S_D261L_V294C_72.5.pdb'
@@ -11,9 +11,11 @@ ligand: '/home/tianxh/projects/DiffDock/data/dummy_data/test.sdf'
 samples_per_complex: 10
 out_dir: 'results/user_inference'
 
+ignore_existed_esm_embeddings: true # 这个参数控制是否重新生成蛋白序列的ESM2特征
+
 # 下面的参数就不要改了
 config: null
-ignore_existed_esm_embeddings: false
+
 save_visualisation: true
 model_dir: 'workdir/paper_score_model'
 ckpt: 'best_ema_inference_epoch_model.pt'
