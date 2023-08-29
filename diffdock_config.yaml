@@ -1,12 +1,14 @@
 # 参考data/protein_ligand_example_csv.csv
 # if specified, protein_path and ligand will be omittd
-protein_ligand_csv: /home/tianxh/projects/DiffDock/data/dummy_data/wanghui_8DHH.csv
-#protein_ligand_csv: null
+#protein_ligand_csv: /home/tianxh/projects/DiffDock/data/dummy_data/wanghui_8DHH.csv
+protein_ligand_csv: null
 
 # 给定的都是绝对路径
-protein_path: 'data/dummy_data/10_mt_K68S_D261L_V294C_72.5.pdb'
+protein_path: 'data/dummy_data/AF_rec.pdb'
 # ligand可以给smiles字符串，也可以给sdf文件或mo2文件的绝对路径
-ligand: '/home/tianxh/projects/DiffDock/data/dummy_data/test.sdf'
+#ligand: '/home/tianxh/projects/DiffDock/data/dummy_data/test.sdf'
+ligand: 'Cc1n(C)c(C(C(Nc2ccc(N3CCN(CC3)c4ncc(F)cn4)cc2)=O)=O)c(c5ccccc5)c1'
+
 # 最后输出的构象数量
 samples_per_complex: 10
 out_dir: 'results/user_inference'

@@ -9,7 +9,9 @@ from rdkit import Chem
 from scipy import spatial
 # from Bio.PDB.Selection import unfold_entities
 
-biopython_parser = PDBParser()
+biopython_parser = PDBP
+
+arser()
 
 def parse_receptor(pdbid, pdbbind_dir):
     rec = parsePDB(pdbid, pdbbind_dir)
@@ -113,7 +115,7 @@ def get_AAs_around_ligand(rec, lig, radius=5): # lig是对接后的三维构象�
     residue_ids = [atoms[i].get_parent().get_id()[1] for i in contacts]  # residue id
     chain_ids = [atoms[i].get_parent().parent.get_id() for i in contacts] # residue name
     contact_redidues = {id:(res, chain) for id, res, chain in zip(residue_ids, residue_names, chain_ids)}
-    contact_residues_simple = list(set([str(id)+res for id, res in zip(residue_ids, residue_names)]))
+    contact_residues_simple = list(set([c+':'+str(id)+res for id, res, c in zip(residue_ids, residue_names, chain_ids)]))
     # print(residue_names, residue_ids, chain_ids)
     return contact_redidues, contact_residues_simple
 
@@ -166,13 +168,14 @@ def read_molecule(molecule_file, sanitize=False, calc_charges=False, remove_hs=F
 if __name__ == '__main__':
     # pdb_file = '/home/tianxh/projects/DiffDock/data/dummy_data/1c1d.pdb'
     # lig_file = '/home/tianxh/projects/DiffDock/data/dummy_data/rank1.sdf'
-    pdb_file = '/home/tianxh/projects/DiffDock/data/dummy_data/taq_T.pdb'
-    lig_file = '/home/tianxh/projects/DiffDock/data/dummy_data/sds.sdf'
+    pdb_file = '../data/1a30/1a30_protein.pdb'
+    lig_file = '../data/1a30/1a30_ligand.sdf'
 
     parser = PDBParser(PERMISSIVE=1)
     rec = parser.get_structure('temp', pdb_file)[0] # model level
     mol = read_molecule(lig_file)
     mol = Chem.AddHs(mol) # 给读取的sdf 构象加氢
 
-    residues, residues_simple = get_AAs_around_ligand(rec, mol, radius=3.5)
+    residues, residues_simple = get_AAs_around_ligand(rec, mol, radius=4)
+    print(residues)
     print(residues_simple) # 忽略了chain的信息
