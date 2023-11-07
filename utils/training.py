@@ -13,9 +13,10 @@ from utils.diffusion_utils import get_t_schedule
 # 这里有三个score models，分别对应了平移R3，旋转O3，还有m个扭转SO2
 def loss_function(tr_pred, rot_pred, tor_pred, data, t_to_sigma, device, tr_weight=1, rot_weight=1,
                   tor_weight=1, apply_mean=True, no_torsion=False):
+    # t_to_sigma输入是t，输出是对应与sigma(t)函数的sigma值
     tr_sigma, rot_sigma, tor_sigma = t_to_sigma(
         *[torch.cat([d.complex_t[noise_type] for d in data]) if device.type == 'cuda' else data.complex_t[noise_type]
-          for noise_type in ['tr', 'rot', 'tor']])
+          for noise_type in ['tr', 'rot', 'tor']]) # sigma_min**(1-t)*sigma_max**t
     mean_dims = (0, 1) if apply_mean else 1
 
     # translation component
@@ -24,9 +25,9 @@ def loss_function(tr_pred, rot_pred, tor_pred, data, t_to_sigma, device, tr_weig
     tr_loss = ((tr_pred.cpu() - tr_score) ** 2 * tr_sigma ** 2).mean(dim=mean_dims) # 2*sigma_t^2*(S_t_p-S_t)^2
     tr_base_loss = (tr_score ** 2 * tr_sigma ** 2).mean(dim=mean_dims).detach() # 2*sigma_t^2*St^2
 
-    # rotation component
+    # rotation component。这部分参考文献方程3，从IGSO(3)采样
     rot_score = torch.cat([d.rot_score for d in data], dim=0) if device.type == 'cuda' else data.rot_score
-    rot_score_norm = so3.score_norm(rot_sigma.cpu()).unsqueeze(-1) # utils/so3/score_norm()
+    rot_score_norm = so3.score_norm(rot_sigma.cpu()).unsqueeze(-1) # utils/so3/score_norm() 结果是对应该sigma值的score模
     rot_loss = (((rot_pred.cpu() - rot_score) / rot_score_norm) ** 2).mean(dim=mean_dims)
     rot_base_loss = ((rot_score / rot_score_norm) ** 2).mean(dim=mean_dims).detach()
 

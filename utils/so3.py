@@ -65,8 +65,8 @@ else:
     _cdf_vals = np.asarray([_pdf.cumsum() / X_N * np.pi for _pdf in _pdf_vals]) # 在w方向上求累积和，归一化。最大=1*pi. n_eps*n_w
     _score_norms = np.asarray([_score(_exp_vals[i], _omegas_array, _eps_array[i]) for i in range(len(_eps_array))]) # 一个sigma对应一个f(w)。对每个sigma求对应的转移核，i是对sigma遍历
 
-    _exp_score_norms = np.sqrt(np.sum(_score_norms**2 * _pdf_vals, axis=1) / np.sum(_pdf_vals, axis=1) / np.pi)
-    # 像是求了一下二阶矩的开根号。即对每个sigma，对应一个score均值。要根据sigma计算整个S均值
+    _exp_score_norms = np.sqrt(np.sum(_score_norms**2 * _pdf_vals, axis=1) / np.sum(_pdf_vals, axis=1) / np.pi) # 对应每个sigma的expansion score_norm，n_sigma*1个数字
+    # 像是求了一下二阶矩的开根号。即对每个sigma，对应一个score模值。要根据sigma计算整个S均值
 
     np.save('.so3_omegas_array2.npy', _omegas_array)
     np.save('.so3_cdf_vals2.npy', _cdf_vals) # 1000*2000
@@ -88,13 +88,13 @@ def sample_vec(eps): # 采样旋转轴矢量：归一化的矢量即为旋转轴
     return x * sample(eps) # 欧拉矢量，x是（归一化的）旋转轴，sample(eps)指定了旋转角的大小。欧拉矢量使用3个参数表征一个SO3旋转
 
 
-# 采出一个score得分后将其向量化到旋转轴上
+# 将一个vec(其归一化向量代表欧拉轴，其模长代表旋转角度)。这里保持轴不变，但是把角度重新插值计算一下
 def score_vec(eps, vec):
     eps_idx = (np.log10(eps) - np.log10(MIN_EPS)) / (np.log10(MAX_EPS) - np.log10(MIN_EPS)) * N_EPS
     eps_idx = np.clip(np.around(eps_idx).astype(int), a_min=0, a_max=N_EPS - 1)
 
-    om = np.linalg.norm(vec) # 欧拉向量的模就是旋转角，0-pi。下一步将该角度在eps对应的p(w)上插值计算对应的预存模长
-    return np.interp(om, _omegas_array, _score_norms[eps_idx]) * vec / om
+    om = np.linalg.norm(vec) # 欧拉向量的模就是旋转角，0-pi。下一步将该角度在eps对应的p(w)上插值计算对应的预存模长，而不是使用vec自己的原始模长
+    return np.interp(om, _omegas_array, _score_norms[eps_idx]) * vec / om # np.interp(x, xp, fp)
     # vec / om 就是归一化的旋转轴。
 
 
