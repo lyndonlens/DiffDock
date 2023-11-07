@@ -3,15 +3,40 @@ import os
 import warnings
 
 import numpy as np
-from Bio.PDB import PDBParser
+from Bio.PDB import PDBParser, Superimposer
+from Bio.PDB.PDBIO import PDBIO
 from Bio.PDB.PDBExceptions import PDBConstructionWarning
 from rdkit import Chem
 from scipy import spatial
 # from Bio.PDB.Selection import unfold_entities
 
-biopython_parser = PDBP
+biopython_parser = PDBParser()
 
-arser()
+def align_pdbs(pdb1:str, pdb2:str, out='align.pdb'): #效果很差
+    # 读取两个PDB文件
+    parser = PDBParser(QUIET=True)
+    structure1 = parser.get_structure('structure1', pdb1)
+    structure2 = parser.get_structure('structure2', pdb2)
+
+    # 创建Superimposer对象并进行对齐
+    superimposer = Superimposer()
+    atoms1 = []
+    atoms2 = []
+
+    for model1, model2 in zip(structure1, structure2):
+        for chain1, chain2 in zip(model1, model2):
+            for atom1, atom2 in zip(chain1.get_atoms(), chain2.get_atoms()):
+                atoms1.append(atom1)
+                atoms2.append(atom2)
+
+    superimposer.set_atoms(atoms1, atoms2)
+    superimposer.apply(structure2[0])
+
+    # 输出对齐后的结构
+    output = PDBIO()
+    output.set_structure(structure2)
+    output.save(out)
+
 
 def parse_receptor(pdbid, pdbbind_dir):
     rec = parsePDB(pdbid, pdbbind_dir)
@@ -171,11 +196,16 @@ if __name__ == '__main__':
     pdb_file = '../data/1a30/1a30_protein.pdb'
     lig_file = '../data/1a30/1a30_ligand.sdf'
 
-    parser = PDBParser(PERMISSIVE=1)
-    rec = parser.get_structure('temp', pdb_file)[0] # model level
-    mol = read_molecule(lig_file)
-    mol = Chem.AddHs(mol) # 给读取的sdf 构象加氢
+    # parser = PDBParser(PERMISSIVE=1)
+    # rec = parser.get_structure('temp', pdb_file)[0] # model level
+    # mol = read_molecule(lig_file)
+    # mol = Chem.AddHs(mol) # 给读取的sdf 构象加氢
+    #
+    # residues, residues_simple = get_AAs_around_ligand(rec, mol, radius=4)
+    # print(residues)
+    # print(residues_simple) # 忽略了chain的信息
 
-    residues, residues_simple = get_AAs_around_ligand(rec, mol, radius=4)
-    print(residues)
-    print(residues_simple) # 忽略了chain的信息
+    # pdb1 = '../data/4YNU/4ynu_h.pdb' # 目标坐标系
+    # pdb2 = '../data/4YNU/7vkd.pdb'
+    # for _ in range(3):
+    #     align_pdbs(pdb1, pdb2, '../data/4YNU/7vkd.pdb')

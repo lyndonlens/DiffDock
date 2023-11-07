@@ -10,7 +10,7 @@ from utils.sampling import randomize_position, sampling
 import torch
 from utils.diffusion_utils import get_t_schedule
 
-# 这里有三个score models，分别对应了平移R3，旋转O3，还有扭转SO2 m个
+# 这里有三个score models，分别对应了平移R3，旋转O3，还有m个扭转SO2
 def loss_function(tr_pred, rot_pred, tor_pred, data, t_to_sigma, device, tr_weight=1, rot_weight=1,
                   tor_weight=1, apply_mean=True, no_torsion=False):
     tr_sigma, rot_sigma, tor_sigma = t_to_sigma(
@@ -19,14 +19,14 @@ def loss_function(tr_pred, rot_pred, tor_pred, data, t_to_sigma, device, tr_weig
     mean_dims = (0, 1) if apply_mean else 1
 
     # translation component
-    tr_score = torch.cat([d.tr_score for d in data], dim=0) if device.type == 'cuda' else data.tr_score
+    tr_score = torch.cat([d.tr_score for d in data], dim=0) if device.type == 'cuda' else data.tr_score # 若使用GPU则需要重新读出然后cat
     tr_sigma = tr_sigma.unsqueeze(-1)
-    tr_loss = ((tr_pred.cpu() - tr_score) ** 2 * tr_sigma ** 2).mean(dim=mean_dims)
-    tr_base_loss = (tr_score ** 2 * tr_sigma ** 2).mean(dim=mean_dims).detach()
+    tr_loss = ((tr_pred.cpu() - tr_score) ** 2 * tr_sigma ** 2).mean(dim=mean_dims) # 2*sigma_t^2*(S_t_p-S_t)^2
+    tr_base_loss = (tr_score ** 2 * tr_sigma ** 2).mean(dim=mean_dims).detach() # 2*sigma_t^2*St^2
 
     # rotation component
     rot_score = torch.cat([d.rot_score for d in data], dim=0) if device.type == 'cuda' else data.rot_score
-    rot_score_norm = so3.score_norm(rot_sigma.cpu()).unsqueeze(-1)
+    rot_score_norm = so3.score_norm(rot_sigma.cpu()).unsqueeze(-1) # utils/so3/score_norm()
     rot_loss = (((rot_pred.cpu() - rot_score) / rot_score_norm) ** 2).mean(dim=mean_dims)
     rot_base_loss = ((rot_score / rot_score_norm) ** 2).mean(dim=mean_dims).detach()
 

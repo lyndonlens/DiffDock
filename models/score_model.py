@@ -44,9 +44,9 @@ class AtomEncoder(torch.nn.Module):
         for i in range(self.num_categorical_features):
             x_embedding += self.atom_embedding_list[i](x[:, i].long())
 
-        if self.num_scalar_features > 0:
+        if self.num_scalar_features > 0: # 标量特征线性变换，输出位emb_dim
             x_embedding += self.linear(x[:, self.num_categorical_features:self.num_categorical_features + self.num_scalar_features])
-        if self.lm_embedding_type is not None:
+        if self.lm_embedding_type is not None: # esm特征的线性变换1280+emb_dim-->emb_dim
             x_embedding = self.lm_embedding_layer(torch.cat([x_embedding, x[:, -self.lm_embedding_dim:]], axis=1))
         return x_embedding
 
@@ -66,6 +66,7 @@ class TensorProductConvLayer(torch.nn.Module):
         if hidden_features is None:
             hidden_features = n_edge_features
 
+        # in_irreps总的维度是
         self.tp = tp = o3.FullyConnectedTensorProduct(in_irreps, sh_irreps, out_irreps, shared_weights=False)
 
         self.fc = nn.Sequential(
@@ -111,8 +112,8 @@ class TensorProductScoreModel(torch.nn.Module):
         self.center_max_distance = center_max_distance
         self.distance_embed_dim = distance_embed_dim
         self.cross_distance_embed_dim = cross_distance_embed_dim
-        self.sh_irreps = o3.Irreps.spherical_harmonics(lmax=sh_lmax) # 生成0到sh_lmax阶的求西恩函数
-        self.ns, self.nv = ns, nv
+        self.sh_irreps = o3.Irreps.spherical_harmonics(lmax=sh_lmax) # 生成0到sh_lmax阶的球谐函数
+        self.ns, self.nv = ns, nv # number of scalers and vectors
         self.scale_by_sigma = scale_by_sigma
         self.device = device
         self.no_torsion = no_torsion

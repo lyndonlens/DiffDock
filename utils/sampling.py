@@ -37,7 +37,9 @@ def sampling(data_list, model, inference_steps, tr_schedule, rot_schedule, tor_s
     N = len(data_list) # 生成的lig构象数量
 
     for t_idx in range(inference_steps):
+        # 具体的时间点
         t_tr, t_rot, t_tor = tr_schedule[t_idx], rot_schedule[t_idx], tor_schedule[t_idx] # np.linspace(1, 0, inference_steps + 1)[:-1]
+        # 时间步长，用于drift
         dt_tr = tr_schedule[t_idx] - tr_schedule[t_idx + 1] if t_idx < inference_steps - 1 else tr_schedule[t_idx]
         dt_rot = rot_schedule[t_idx] - rot_schedule[t_idx + 1] if t_idx < inference_steps - 1 else rot_schedule[t_idx]
         dt_tor = tor_schedule[t_idx] - tor_schedule[t_idx + 1] if t_idx < inference_steps - 1 else tor_schedule[t_idx]
@@ -49,6 +51,7 @@ def sampling(data_list, model, inference_steps, tr_schedule, rot_schedule, tor_s
             b = complex_graph_batch.num_graphs
             complex_graph_batch = complex_graph_batch.to(device)
 
+            # 在t上的sigma变化
             tr_sigma, rot_sigma, tor_sigma = t_to_sigma(t_tr, t_rot, t_tor) # sigma_min**(1-t) * sigma_max**t
             set_time(complex_graph_batch, t_tr, t_rot, t_tor, b, model_args.all_atoms, device)
             
@@ -59,16 +62,19 @@ def sampling(data_list, model, inference_steps, tr_schedule, rot_schedule, tor_s
             rot_g = 2 * rot_sigma * torch.sqrt(torch.tensor(np.log(model_args.rot_sigma_max / model_args.rot_sigma_min))) # ? where is the coefficient 2 ?
             # 感觉这里这个2*放错位置了。平移和torsion的都在根号下
 
+            # rotation采样的结果是基于IGSO预存数据采样+插值而来的旋转轴+旋转角度，即aixs-angle采样。然后需要将axis-angle转化为rotation-matrix
             if ode:
                 tr_perturb = (0.5 * tr_g ** 2 * tr_score.cpu() * dt_tr).cpu() # dt_tr is the time step. 这是SongYang论文Eq13方程右边的第二项。在diffdock论文里，f(x, t)这个drift项始终=0
                 rot_perturb = (0.5 * rot_g ** 2 * rot_score.cpu() * dt_rot).cpu()
                 # rot_perturb = (0.5 * rot_score.cpu() * dt_rot * rot_g ** 2).cpu() # 原代码
             else:
+                # 平移矢量的随机项
                 tr_z = torch.zeros((b, 3)) if no_random or (no_final_step_noise and t_idx == inference_steps - 1) \
                     else torch.normal(mean=0, std=1, size=(b, 3))
                 # 这是SongYang论文Eq6方程右边的第二项
-                tr_perturb = (tr_g ** 2 * dt_tr * tr_score.cpu() + tr_g * np.sqrt(dt_tr) * tr_z).cpu() # g**2*dt*score + g*w
+                tr_perturb = (tr_g ** 2 * dt_tr * tr_score.cpu() + tr_g * np.sqrt(dt_tr) * tr_z).cpu() # g**2*score*dt + g*sqrt(dt)*z
                 # SongYang论文Eq6方程右边的第二项。第二项多了个delta_t开根号；按说第一项前面还有个负号？
+
 
                 rot_z = torch.zeros((b, 3)) if no_random or (no_final_step_noise and t_idx == inference_steps - 1) \
                     else torch.normal(mean=0, std=1, size=(b, 3))
@@ -86,10 +92,11 @@ def sampling(data_list, model, inference_steps, tr_schedule, rot_schedule, tor_s
             else:
                 tor_perturb = None
 
-            # Apply noise
+            # Apply noise，对每个体系有一个translation，一个rotation，m个torsions
             new_data_list.extend([modify_conformer(complex_graph, tr_perturb[i:i + 1], rot_perturb[i:i + 1].squeeze(0),
                                           tor_perturb[i * torsions_per_molecule:(i + 1) * torsions_per_molecule] if not model_args.no_torsion else None)
                          for i, complex_graph in enumerate(complex_graph_batch.to('cpu').to_data_list())])
+
         data_list = new_data_list
 
         if visualization_list is not None:
