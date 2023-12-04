@@ -205,7 +205,7 @@ if __name__ == '__main__':
     # print(residues)
     # print(residues_simple) # 忽略了chain的信息
 
-    # pdb1 = '../data/4YNU/4ynu_h.pdb' # 目标坐标系
-    # pdb2 = '../data/4YNU/7vkd.pdb'
+    # pdb1 = '../data/4ynu/4ynu_h.pdb' # 目标坐标系
+    # pdb2 = '../data/4ynu/7vkd.pdb'
     # for _ in range(3):
-    #     align_pdbs(pdb1, pdb2, '../data/4YNU/7vkd.pdb')
+    #     align_pdbs(pdb1, pdb2, '../data/4ynu/7vkd.pdb')

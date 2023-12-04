@@ -13,8 +13,8 @@ from utils.diffusion_utils import get_t_schedule
 # 这里有三个score models，分别对应了平移R3，旋转O3，还有m个扭转SO2
 def loss_function(tr_pred, rot_pred, tor_pred, data, t_to_sigma, device, tr_weight=1, rot_weight=1,
                   tor_weight=1, apply_mean=True, no_torsion=False):
-    # t_to_sigma输入是t，输出是对应与sigma(t)函数的sigma值
-    tr_sigma, rot_sigma, tor_sigma = t_to_sigma(
+    # t_to_sigma输入是t，输出是对应与sigma(t)函数的sigma值。这里torsion_sigma没有用到。torsion_sigma参考后面的edge_tor_sigma
+    tr_sigma, rot_sigma, _ = t_to_sigma(
         *[torch.cat([d.complex_t[noise_type] for d in data]) if device.type == 'cuda' else data.complex_t[noise_type]
           for noise_type in ['tr', 'rot', 'tor']]) # sigma_min**(1-t)*sigma_max**t
     mean_dims = (0, 1) if apply_mean else 1
@@ -52,7 +52,7 @@ def loss_function(tr_pred, rot_pred, tor_pred, data, t_to_sigma, device, tr_weig
             t_l.index_add_(0, index, tor_loss)
             t_b_l.index_add_(0, index, tor_base_loss)
             tor_loss, tor_base_loss = t_l / c, t_b_l / c
-    else:
+    else: # torsion全部设为0
         if apply_mean:
             tor_loss, tor_base_loss = torch.zeros(1, dtype=torch.float), torch.zeros(1, dtype=torch.float)
         else:

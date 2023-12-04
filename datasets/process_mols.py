@@ -131,7 +131,6 @@ def safe_index(l, e):
         return len(l) - 1
 
 
-
 def parse_receptor(pdbid, pdbbind_dir):
     rec = parsePDB(pdbid, pdbbind_dir)
     return rec
@@ -140,6 +139,7 @@ def parse_receptor(pdbid, pdbbind_dir):
 def parsePDB(pdbid, pdbbind_dir):
     rec_path = os.path.join(pdbbind_dir, pdbid, f'{pdbid}_protein_processed.pdb')
     return parse_pdb_from_path(rec_path)
+
 
 def parse_pdb_from_path(path):
     with warnings.catch_warnings():
@@ -186,7 +186,7 @@ def extract_receptor_structure(rec, lig, lm_embedding_chains=None):
                     c = list(atom.get_vector())
                 residue_coords.append(list(atom.get_vector())) # all atoms in a residue [n_atom_per_residue, 3]
 
-            if c_alpha != None and n != None and c != None: # 跳过莫名其妙的分子片段。残基都有CA
+            if c_alpha != None and n != None and c != None: # 跳过莫名其妙的分子片段。即使侧链缺失，蛋白质残基一般也都有CA，C和N。
                 # only append residue if it is an amino acid and not some weird molecule that is part of the complex
                 chain_c_alpha_coords.append(c_alpha)
                 chain_n_coords.append(n)
@@ -267,7 +267,7 @@ def get_lig_graph(mol, complex_graph): # 这是torch_geometric的异质图数据
         start, end = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
         row += [start, end]
         col += [end, start]
-        edge_type += 2 * [bonds[bond.GetBondType()]] if bond.GetBondType() != BT.UNSPECIFIED else [0, 0]
+        edge_type += 2 * [bonds[bond.GetBondType()]] if bond.GetBondType() != BT.UNSPECIFIED else [0, 0] # 对于未知的bondtype写成
 
     edge_index = torch.tensor([row, col], dtype=torch.long)
     edge_type = torch.tensor(edge_type, dtype=torch.long)
@@ -293,7 +293,7 @@ def generate_conformer(mol):
 
 def get_lig_graph_with_matching(mol_, complex_graph, popsize, maxiter, matching, keep_original, num_conformers, remove_hs):
     '''
-        Conformer matching, ref to Bowen Jing, Gabriele Corso, Jeffrey Chang, Regina Barzilay, and Tommi Jaakkola. Torsional diffusion for molecular conformer generation
+        Conformer matching, ref to Bowen Jing,. Torsional diffusion for molecular conformer generation, 2022
         阅读Diffdock文献Appendix B前3段，可以理解为什么要用conformer matching。其目的是要让训练数据的local structure分布和推断时保持一致。
         文献中将整个分子构象划分为两部分：Local structure和rotable bonds，Diffdock只允许rotable bonds改变去寻找构象，Local structure是不允许变动的，包括键长、键角等。
         推断时，Ligand的结构是未知的（或者是用户提供的？待确认会否直接使用用户提供的结构，按说也不应该直接用），需要用Rdkit的ETKDG方法来预测，这时，local sructure是ETKDG预测的。
@@ -364,12 +364,12 @@ def get_calpha_graph(rec, c_alpha_coords, n_coords, c_coords, complex_graph, cut
     dst_list = []
     mean_norm_list = []
     for i in range(num_residues): # 遍历所有AA
-        dst = list(np.where(distances[i, :] < cutoff)[0])
-        dst.remove(i) # 与自身的距离
-        if max_neighbor != None and len(dst) > max_neighbor:
-            dst = list(np.argsort(distances[i, :]))[1: max_neighbor + 1]
-        if len(dst) == 0:
-            dst = list(np.argsort(distances[i, :]))[1:2] # choose second because first is i itself
+        dst = list(np.where(distances[i, :] < cutoff)[0]) # 转list，找出cutoff内邻居，然后删除自身id
+        dst.remove(i) # 自身
+        if max_neighbor != None and len(dst) > max_neighbor: # 过多neighbor需要
+            dst = list(np.argsort(distances[i, :]))[1: max_neighbor + 1] # choose second because first is i itself
+        if len(dst) == 0: # 没有邻居，那么就只取最近的那一个
+            dst = list(np.argsort(distances[i, :]))[1:2]
             print(f'The c_alpha_cutoff {cutoff} was too small for one c_alpha such that it had no neighbors. '
                   f'So we connected it to the closest other c_alpha')
         assert i not in dst
@@ -378,12 +378,12 @@ def get_calpha_graph(rec, c_alpha_coords, n_coords, c_coords, complex_graph, cut
         dst_list.extend(dst)
         valid_dist = list(distances[i, dst])
         valid_dist_np = distances[i, dst]
-        sigma = np.array([1., 2., 5., 10., 30.]).reshape((-1, 1))
-        weights = softmax(- valid_dist_np.reshape((1, -1)) ** 2 / sigma, axis=1)  # (sigma_num, neigh_num)
-        assert weights[0].sum() > 1 - 1e-2 and weights[0].sum() < 1.01
+        sigma = np.array([1., 2., 5., 10., 30.]).reshape((-1, 1)) # gaussian函数的方差
+        weights = softmax(- valid_dist_np.reshape((1, -1)) ** 2 / sigma, axis=1)  # (sigma_num, neigh_num) 对每个邻居的距离，编码为sigma num=5的距离编码形式
+        assert weights[0].sum() > 1 - 1e-2 and weights[0].sum() < 1.01 # 总和=1
         diff_vecs = c_alpha_coords[src, :] - c_alpha_coords[dst, :]  # 距离向量，(neigh_num, 3)
-        mean_vec = weights.dot(diff_vecs)  # (sigma_num, 3)
-        denominator = weights.dot(np.linalg.norm(diff_vecs, axis=1))  # (sigma_num,)
+        mean_vec = weights.dot(diff_vecs)  # (sigma_num, 3) 对每个连接矢量施加权重限制
+        denominator = weights.dot(np.linalg.norm(diff_vecs, axis=1))  # (sigma_num,) # 对每个sigma，计算一个归一化项
         mean_vec_ratio_norm = np.linalg.norm(mean_vec, axis=1) / denominator  # (sigma_num,)
         mean_norm_list.append(mean_vec_ratio_norm)
     assert len(src_list) == len(dst_list)
@@ -522,7 +522,8 @@ def write_mol_with_coords(mol, new_coords, path):
     w.write(mol)
     w.close()
 
-# return 3D mol. Why remove Hs ?
+# return 3D mol. The model was set to remove Hs to simplify the system, but in a realitic biological system,
+# Hs is essential in protein-ligand interactions to define their relative orientations through extensive H-bonds.
 def read_molecule(molecule_file, sanitize=False, calc_charges=False, remove_hs=False):
     if molecule_file.endswith('.mol2'):
         mol = Chem.MolFromMol2File(molecule_file, sanitize=False, removeHs=False)
@@ -531,7 +532,7 @@ def read_molecule(molecule_file, sanitize=False, calc_charges=False, remove_hs=F
         mol = supplier[0]
     elif molecule_file.endswith('.pdbqt'):
         #The pdbqt format is 'pdb' plus 'q' for partial charge and 't' for AD4 atom type. Special AD4 atom types are OA,NA,SA for hbond accepting O,N and S atoms,
-        # HD for hbond donor H atoms,N for non-hydrogen bonding nitrogens and A for carbons in planar cycles.
+        # HD for hbond donor H atoms, N for non-hydrogen bonding nitrogens and A for carbons in planar cycles.
         # For any other atom, its AD4 atom type is the same as its element.
         with open(molecule_file) as file:
             pdbqt_data = file.readlines()

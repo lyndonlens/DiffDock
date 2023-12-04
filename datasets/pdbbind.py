@@ -30,7 +30,7 @@ class NoiseTransform(BaseTransform):
         self.all_atom = all_atom
 
     def __call__(self, data):
-        t = np.random.uniform()
+        t = np.random.uniform() # 随机采一个0-1的时间
         t_tr, t_rot, t_tor = t, t, t
         return self.apply_noise(data, t_tr, t_rot, t_tor)
 
@@ -38,16 +38,22 @@ class NoiseTransform(BaseTransform):
         if not torch.is_tensor(data['ligand'].pos):
             data['ligand'].pos = random.choice(data['ligand'].pos)
 
-        tr_sigma, rot_sigma, tor_sigma = self.t_to_sigma(t_tr, t_rot, t_tor)
+        tr_sigma, rot_sigma, tor_sigma = self.t_to_sigma(t_tr, t_rot, t_tor) # rot_sigma在采样时需要换算到log域
         set_time(data, t_tr, t_rot, t_tor, 1, self.all_atom, device=None)
 
+        # 随机采translation矢量.translation矢量的采样就是采出一个3维的向量作为平移矢量，最简单了
         tr_update = torch.normal(mean=0, std=tr_sigma, size=(1, 3)) if tr_update is None else tr_update
+        # axis-angle旋转。从预计算的IGSO中采一个矢量，归一化矢量为轴，模为w。参考diffdock文献方程3
         rot_update = so3.sample_vec(eps=rot_sigma) if rot_update is None else rot_update
+        #
         torsion_updates = np.random.normal(loc=0.0, scale=tor_sigma, size=data['ligand'].edge_mask.sum()) if torsion_updates is None else torsion_updates
         torsion_updates = None if self.no_torsion else torsion_updates
+        # 每次随机采样出tr，rot，tor，对conformer进行update。这些采样都是直接在实数空间采样的，在tor时可能需要转为弧度制
         modify_conformer(data, tr_update, torch.from_numpy(rot_update).float(), torsion_updates)
 
+        # 然后根据采出的平移、旋转、扭转参数，计算对应的score
         data.tr_score = -tr_update / tr_sigma ** 2
+        # 将旋转矢量按照预存的概率密度分布来插值。这里对于rot和tor预先已经算好了，只需要根据采样的结果进行插值计算
         data.rot_score = torch.from_numpy(so3.score_vec(vec=rot_update, eps=rot_sigma)).float().unsqueeze(0)
         data.tor_score = None if self.no_torsion else torch.from_numpy(torus.score(torsion_updates, tor_sigma)).float()
         data.tor_sigma_edge = None if self.no_torsion else np.ones(data['ligand'].edge_mask.sum()) * tor_sigma
@@ -131,27 +137,27 @@ class PDBBind(Dataset):
     def preprocessing(self):
         print(f'Processing complexes from [{self.split_path}] and saving it to [{self.full_cache_path}]')
 
-        complex_names_all = read_strings_from_txt(self.split_path)
-        if self.limit_complexes is not None and self.limit_complexes != 0:
+        complex_names_all = read_strings_from_txt(self.split_path) # train, valid, test文件
+        if self.limit_complexes is not None and self.limit_complexes != 0: # 限制训练数据的数量
             complex_names_all = complex_names_all[:self.limit_complexes]
         print(f'Loading {len(complex_names_all)} complexes.')
 
         if self.esm_embeddings_path is not None:
-            id_to_embeddings = torch.load(self.esm_embeddings_path)
+            id_to_embeddings = torch.load(self.esm_embeddings_path) #esm2特征
             chain_embeddings_dictlist = defaultdict(list)
             for key, embedding in id_to_embeddings.items():
-                key_name = key.split('_')[0]
+                key_name = key.split('_')[0] # 可能有些ID是带有chain的编号，如4YNU_A
                 if key_name in complex_names_all:
-                    chain_embeddings_dictlist[key_name].append(embedding)
+                    chain_embeddings_dictlist[key_name].append(embedding) # dict
             lm_embeddings_chains_all = []
             for name in complex_names_all:
-                lm_embeddings_chains_all.append(chain_embeddings_dictlist[name])
+                lm_embeddings_chains_all.append(chain_embeddings_dictlist[name]) # list，铺平，训练时方便提取
         else:
-            lm_embeddings_chains_all = [None] * len(complex_names_all)
+            lm_embeddings_chains_all = [None] * len(complex_names_all) # 若不使用esm2特征，则
 
         if self.num_workers > 1:
             # running preprocessing in parallel on multiple workers and saving the progress every 1000 complexes
-            for i in range(len(complex_names_all)//1000+1):
+            for i in range(len(complex_names_all)//1000+1): # 预先保存好，每1000个一组
                 if os.path.exists(os.path.join(self.full_cache_path, f"heterographs{i}.pkl")):
                     continue
                 complex_names = complex_names_all[1000*i:1000*(i+1)]
@@ -162,7 +168,6 @@ class PDBBind(Dataset):
                     p.__enter__()
                 with tqdm(total=len(complex_names), desc=f'loading complexes {i}/{len(complex_names_all)//1000+1}') as pbar:
                     map_fn = p.imap_unordered if self.num_workers > 1 else map
-                    xxxx
                     for t in map_fn(self.get_complex, zip(complex_names, lm_embeddings_chains, [None] * len(complex_names), [None] * len(complex_names))):
                         complex_graphs.extend(t[0])
                         rdkit_ligands.extend(t[1])
@@ -271,8 +276,8 @@ class PDBBind(Dataset):
                     map_fn = p.imap_unordered if self.num_workers > 1 else map
                     xxxx
                     for t in map_fn(self.get_complex, zip(protein_paths_chunk, lm_embeddings_chains, ligands_chunk,ligand_description_chunk)):
-                        complex_graphs.extend(t[0])
-                        rdkit_ligands.extend(t[1])
+                        complex_graphs.extend(t[0]) # 复合物
+                        rdkit_ligands.extend(t[1]) # 配体
                         pbar.update()
                 if self.num_workers > 1: p.__exit__(None, None, None)
 
@@ -312,13 +317,13 @@ class PDBBind(Dataset):
                 pickle.dump((rdkit_ligands), f)
 
     def get_complex(self, par):
-        name, lm_embedding_chains, ligand, ligand_description = par
+        name, lm_embedding_chains, ligand, ligand_description = par # name是蛋白质名称；lm_embedding是其esm2特征；ligand是配体结构，从mol2读进来或者是构象生成的；ligand_description就是smiles；
         if not os.path.exists(os.path.join(self.pdbbind_dir, name)) and ligand is None:
             print("Folder not found", name)
             return [], []
 
-        if ligand is not None:
-            rec_model = parse_pdb_from_path(name)
+        if ligand is not None: # ligand结构已获取
+            rec_model = parse_pdb_from_path(name) # 只需要再获取receptor结构
             name = f'{name}____{ligand_description}'
             ligs = [ligand]
         else:
@@ -329,11 +334,12 @@ class PDBBind(Dataset):
                 print(e)
                 return [], []
 
-            ligs = read_mols(self.pdbbind_dir, name, remove_hs=False)
+            ligs = read_mols(self.pdbbind_dir, name, remove_hs=False) # 从该文件夹中找对应的分子是否存在，不存在的话返回[]
+
         complex_graphs = []
         failed_indices = []
         for i, lig in enumerate(ligs):
-            if self.max_lig_size is not None and lig.GetNumHeavyAtoms() > self.max_lig_size:
+            if self.max_lig_size is not None and lig.GetNumHeavyAtoms() > self.max_lig_size: # Maximum number of heavy atoms
                 print(f'Ligand with {lig.GetNumHeavyAtoms()} heavy atoms is larger than max_lig_size {self.max_lig_size}. Not including {name} in preprocessed data.')
                 continue
             complex_graph = HeteroData()

@@ -40,7 +40,7 @@ def parse_train_args():
     parser.add_argument('--ema_rate', type=float, default=0.999, help='decay rate for the exponential moving average model parameters ')
 
     # Dataset
-    parser.add_argument('--limit_complexes', type=int, default=0, help='If positive, the number of training and validation complexes is capped')
+    parser.add_argument('--limit_complexes', type=int, default=0, help='If positive, the number of training and validation complexes is capped') #
     parser.add_argument('--all_atoms', action='store_true', default=False, help='Whether to use the all atoms model')
     parser.add_argument('--receptor_radius', type=float, default=30, help='Cutoff on distances for receptor edges')
     parser.add_argument('--c_alpha_max_neighbors', type=int, default=10, help='Maximum number of neighbors for each residue')
