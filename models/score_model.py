@@ -18,15 +18,18 @@ class AtomEncoder(torch.nn.Module):
     def __init__(self, emb_dim, feature_dims, sigma_embed_dim, lm_embedding_type= None):
         # first element of feature_dims tuple is a list with the lenght of each categorical feature and the second is the number of scalar features
         super(AtomEncoder, self).__init__()
-        self.atom_embedding_list = torch.nn.ModuleList()
-        self.num_categorical_features = len(feature_dims[0])
-        self.num_scalar_features = feature_dims[1] + sigma_embed_dim
+        self.num_categorical_features = len(feature_dims[0]) # 类型特征。对于蛋白质，这里就是氨基酸类型,总类型为38，维度为1
+        self.num_scalar_features = feature_dims[1] + sigma_embed_dim # 对于蛋白质，feature_dims[1]=0；sigma_embed_dim是时间嵌入维度
         self.lm_embedding_type = lm_embedding_type
+
+        # 类型特征嵌入，其embed模型有self.num_categorical_features个
+        self.atom_embedding_list = torch.nn.ModuleList()
         for i, dim in enumerate(feature_dims[0]):
             emb = torch.nn.Embedding(dim, emb_dim)
             torch.nn.init.xavier_uniform_(emb.weight.data)
             self.atom_embedding_list.append(emb)
 
+        # 标量特征和esm特征都映射为emb_dim维度
         if self.num_scalar_features > 0:
             self.linear = torch.nn.Linear(self.num_scalar_features, emb_dim)
         if self.lm_embedding_type is not None:
@@ -37,14 +40,14 @@ class AtomEncoder(torch.nn.Module):
 
     def forward(self, x):
         x_embedding = 0
-        if self.lm_embedding_type is not None:
+        if self.lm_embedding_type is not None: # 原始特征维度确认
             assert x.shape[1] == self.num_categorical_features + self.num_scalar_features + self.lm_embedding_dim
         else:
             assert x.shape[1] == self.num_categorical_features + self.num_scalar_features
-        for i in range(self.num_categorical_features):
-            x_embedding += self.atom_embedding_list[i](x[:, i].long())
+        for i in range(self.num_categorical_features): # 类型特征列表的长度
+            x_embedding += self.atom_embedding_list[i](x[:, i].long()) # 类型特征进行累加计算，维度为emb_dim
 
-        if self.num_scalar_features > 0: # 标量特征线性变换，输出位emb_dim
+        if self.num_scalar_features > 0: # 标量特征线性变换，输出位emb_dim。标量特征的处理与类型特征一样，进行累加
             x_embedding += self.linear(x[:, self.num_categorical_features:self.num_categorical_features + self.num_scalar_features])
         if self.lm_embedding_type is not None: # esm特征的线性变换1280+emb_dim-->emb_dim
             x_embedding = self.lm_embedding_layer(torch.cat([x_embedding, x[:, -self.lm_embedding_dim:]], axis=1))
@@ -124,6 +127,7 @@ class TensorProductScoreModel(torch.nn.Module):
         self.lig_node_embedding = AtomEncoder(emb_dim=ns, feature_dims=lig_feature_dims, sigma_embed_dim=sigma_embed_dim)
         self.lig_edge_embedding = nn.Sequential(nn.Linear(in_lig_edge_features + sigma_embed_dim + distance_embed_dim, ns),nn.ReLU(), nn.Dropout(dropout),nn.Linear(ns, ns))
 
+        # AtomEncoder首先将原始特征编码成ns维度的标量特征，该特征即进入TensorFieldProduct网络的第一层，作为l=0的特征
         self.rec_node_embedding = AtomEncoder(emb_dim=ns, feature_dims=rec_residue_feature_dims, sigma_embed_dim=sigma_embed_dim, lm_embedding_type=lm_embedding_type)
         self.rec_edge_embedding = nn.Sequential(nn.Linear(sigma_embed_dim + distance_embed_dim, ns), nn.ReLU(), nn.Dropout(dropout),nn.Linear(ns, ns))
 
@@ -157,8 +161,8 @@ class TensorProductScoreModel(torch.nn.Module):
 
         lig_conv_layers, rec_conv_layers, lig_to_rec_conv_layers, rec_to_lig_conv_layers = [], [], [], []
         for i in range(num_conv_layers):
-            in_irreps = irrep_seq[min(i, len(irrep_seq) - 1)]
-            out_irreps = irrep_seq[min(i + 1, len(irrep_seq) - 1)]
+            in_irreps = irrep_seq[min(i, len(irrep_seq) - 1)] # 只定义前4层，超过4层采用最后一层参数
+            out_irreps = irrep_seq[min(i + 1, len(irrep_seq) - 1)] # 只定义前4层，超过4层采用最后一层参数
             parameters = {
                 'in_irreps': in_irreps,
                 'sh_irreps': self.sh_irreps,
@@ -266,10 +270,10 @@ class TensorProductScoreModel(torch.nn.Module):
         rec_edge_attr = self.rec_edge_embedding(rec_edge_attr)
 
         # build cross graph
-        if self.dynamic_max_cross:
+        if self.dynamic_max_cross: # 不同元素间使用不同的距离cutoff
             cross_cutoff = (tr_sigma * 3 + 20).unsqueeze(1)
         else:
-            cross_cutoff = self.cross_max_distance
+            cross_cutoff = self.cross_max_distance #
         cross_edge_index, cross_edge_attr, cross_edge_sh = self.build_cross_conv_graph(data, cross_cutoff)
         cross_lig, cross_rec = cross_edge_index
         cross_edge_attr = self.cross_edge_embedding(cross_edge_attr)
@@ -355,18 +359,18 @@ class TensorProductScoreModel(torch.nn.Module):
 
     def build_lig_conv_graph(self, data):
         # builds the ligand graph edges and initial node and edge features
-        data['ligand'].node_sigma_emb = self.timestep_emb_func(data['ligand'].node_t['tr'])
+        data['ligand'].node_sigma_emb = self.timestep_emb_func(data['ligand'].node_t['tr']) # node_t['tr'], tr, rot, tor时间都一样
 
         # compute edges
-        radius_edges = radius_graph(data['ligand'].pos, self.lig_max_radius, data['ligand'].batch)
+        radius_edges = radius_graph(data['ligand'].pos, self.lig_max_radius, data['ligand'].batch) # 用距离计算新边？
         edge_index = torch.cat([data['ligand', 'ligand'].edge_index, radius_edges], 1).long()
         edge_attr = torch.cat([
-            data['ligand', 'ligand'].edge_attr,
-            torch.zeros(radius_edges.shape[-1], self.in_lig_edge_features, device=data['ligand'].x.device)
-        ], 0)
+                    data['ligand', 'ligand'].edge_attr, # 边类型
+                    torch.zeros(radius_edges.shape[-1], self.in_lig_edge_features, device=data['ligand'].x.device) # 边数量 * 初始edge特征维度，默认4
+                    ], 0)
 
         # compute initial features
-        edge_sigma_emb = data['ligand'].node_sigma_emb[edge_index[0].long()]
+        edge_sigma_emb = data['ligand'].node_sigma_emb[edge_index[0].long()] # 扩散时间
         edge_attr = torch.cat([edge_attr, edge_sigma_emb], 1)
         node_attr = torch.cat([data['ligand'].x, data['ligand'].node_sigma_emb], 1)
 
@@ -454,8 +458,8 @@ class GaussianSmearing(torch.nn.Module):
         super().__init__()
         offset = torch.linspace(start, stop, num_gaussians)
         self.coeff = -0.5 / (offset[1] - offset[0]).item() ** 2
-        self.register_buffer('offset', offset)
+        self.register_buffer('offset', offset) # 保存参数但不更新
 
     def forward(self, dist):
-        dist = dist.view(-1, 1) - self.offset.view(1, -1) # [points to embed, num_gaussians]
+        dist = dist.view(-1, 1) - self.offset.view(1, -1) # [edge_distances to embed, num_gaussians]
         return torch.exp(self.coeff * torch.pow(dist, 2))

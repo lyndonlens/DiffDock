@@ -38,7 +38,7 @@ class NoiseTransform(BaseTransform):
         if not torch.is_tensor(data['ligand'].pos):
             data['ligand'].pos = random.choice(data['ligand'].pos)
 
-        tr_sigma, rot_sigma, tor_sigma = self.t_to_sigma(t_tr, t_rot, t_tor) # rot_sigma在采样时需要换算到log域
+        tr_sigma, rot_sigma, tor_sigma = self.t_to_sigma(t_tr, t_rot, t_tor)  # sigma_min**(1-t)*sigma_max**t .  rot_sigma在采样时需要换算到log域
         set_time(data, t_tr, t_rot, t_tor, 1, self.all_atom, device=None)
 
         # 随机采translation矢量.translation矢量的采样就是采出一个3维的向量作为平移矢量，最简单了
