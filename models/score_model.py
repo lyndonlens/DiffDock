@@ -362,7 +362,7 @@ class TensorProductScoreModel(torch.nn.Module):
         data['ligand'].node_sigma_emb = self.timestep_emb_func(data['ligand'].node_t['tr']) # node_t['tr'], tr, rot, tor时间都一样
 
         # compute edges
-        radius_edges = radius_graph(data['ligand'].pos, self.lig_max_radius, data['ligand'].batch) # 用距离计算新边？
+        radius_edges = radius_graph(data['ligand'].pos, self.lig_max_radius, data['ligand'].batch) # 用距离计算新边,因为ligand结构一直在变，可能会产生一些新的较近的原子
         edge_index = torch.cat([data['ligand', 'ligand'].edge_index, radius_edges], 1).long()
         edge_attr = torch.cat([
                     data['ligand', 'ligand'].edge_attr, # 边类型
@@ -402,7 +402,7 @@ class TensorProductScoreModel(torch.nn.Module):
 
     def build_cross_conv_graph(self, data, cross_distance_cutoff):
         # builds the cross edges between ligand and receptor
-        if torch.is_tensor(cross_distance_cutoff):
+        if torch.is_tensor(cross_distance_cutoff): # lig-rec之间的连接是随时更新的
             # different cutoff for every graph (depends on the diffusion time)
             edge_index = radius(data['receptor'].pos / cross_distance_cutoff[data['receptor'].batch],
                                 data['ligand'].pos / cross_distance_cutoff[data['ligand'].batch], 1,
